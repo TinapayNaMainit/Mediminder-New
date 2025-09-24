@@ -1,0 +1,326 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Switch,
+  Alert,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function ProfileScreen() {
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [aiCompanionEnabled, setAiCompanionEnabled] = useState(false);
+
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            console.log('Signing out...');
+            // Add sign out logic here
+          },
+        },
+      ]
+    );
+  };
+
+  interface SettingItemProps {
+    title: string;
+    subtitle?: string;
+    value?: boolean;
+    onValueChange?: (value: boolean) => void;
+    onPress?: () => void;
+    showArrow?: boolean;
+    icon: string;
+  }
+
+  const SettingItem: React.FC<SettingItemProps> = ({ 
+    title, 
+    subtitle, 
+    value, 
+    onValueChange, 
+    onPress, 
+    showArrow = false, 
+    icon 
+  }) => (
+    <Pressable
+      style={styles.settingItem}
+      onPress={onPress}
+      disabled={!onPress && !onValueChange}
+    >
+      <View style={styles.settingIcon}>
+        <Ionicons name={icon as any} size={20} color="#6366F1" />
+      </View>
+      <View style={styles.settingContent}>
+        <Text style={styles.settingTitle}>{title}</Text>
+        {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+      </View>
+      <View style={styles.settingControl}>
+        {onValueChange && (
+          <Switch
+            value={value}
+            onValueChange={onValueChange}
+            trackColor={{ false: '#E5E7EB', true: '#6366F1' }}
+            thumbColor={value ? '#FFFFFF' : '#F3F4F6'}
+          />
+        )}
+        {showArrow && (
+          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+        )}
+      </View>
+    </Pressable>
+  );
+
+  return (
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['#667EEA', '#764BA2']}
+        style={styles.header}
+      >
+        <View style={styles.profileInfo}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>JD</Text>
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>John Doe</Text>
+            <Text style={styles.userEmail}>john@example.com</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Notifications Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+          <View style={styles.settingsGroup}>
+            <SettingItem
+              title="Push Notifications"
+              subtitle="Get reminded when it's time to take your medication"
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
+              icon="notifications"
+            />
+            <SettingItem
+              title="Sound"
+              subtitle="Play sound with notifications"
+              value={soundEnabled}
+              onValueChange={setSoundEnabled}
+              icon="volume-high"
+            />
+            <SettingItem
+              title="Vibration"
+              subtitle="Vibrate when receiving notifications"
+              value={vibrationEnabled}
+              onValueChange={setVibrationEnabled}
+              icon="phone-portrait"
+            />
+          </View>
+        </View>
+
+        {/* AI Companion Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>AI Assistant</Text>
+          <View style={styles.settingsGroup}>
+            <SettingItem
+              title="AI Companion"
+              subtitle="Get personalized medication insights and support"
+              value={aiCompanionEnabled}
+              onValueChange={setAiCompanionEnabled}
+              icon="chatbubbles"
+            />
+          </View>
+        </View>
+
+        {/* Support Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Support</Text>
+          <View style={styles.settingsGroup}>
+            <SettingItem
+              title="Help Center"
+              subtitle="Get help and find answers"
+              onPress={() => Alert.alert('Help Center', 'Feature coming soon!')}
+              showArrow
+              icon="help-circle"
+            />
+            <SettingItem
+              title="Contact Support"
+              subtitle="Get in touch with our team"
+              onPress={() => Alert.alert('Contact Support', 'Feature coming soon!')}
+              showArrow
+              icon="mail"
+            />
+            <SettingItem
+              title="Rate App"
+              subtitle="Share your feedback"
+              onPress={() => Alert.alert('Rate App', 'Feature coming soon!')}
+              showArrow
+              icon="star"
+            />
+          </View>
+        </View>
+
+        {/* Account Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <View style={styles.settingsGroup}>
+            <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+              <LinearGradient
+                colors={['#EF4444', '#DC2626']}
+                style={styles.signOutGradient}
+              >
+                <Ionicons name="log-out-outline" size={20} color="white" />
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>MedReminder v1.0.0</Text>
+          <Text style={styles.footerSubtext}>Made with ❤️ for your health</Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    paddingTop: 50,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+  },
+  profileInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  avatarText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: 'white',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: 'white',
+  },
+  userEmail: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 4,
+  },
+  content: {
+    flex: 1,
+    paddingTop: 20,
+  },
+  section: {
+    marginBottom: 32,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  settingsGroup: {
+    backgroundColor: 'white',
+    marginHorizontal: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  settingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  settingContent: {
+    flex: 1,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  settingSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  settingControl: {
+    marginLeft: 12,
+  },
+  signOutButton: {
+    margin: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  signOutGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  signOutText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  footer: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  footerSubtext: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+});
