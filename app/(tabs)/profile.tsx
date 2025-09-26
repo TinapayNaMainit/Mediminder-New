@@ -10,14 +10,16 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function ProfileScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [aiCompanionEnabled, setAiCompanionEnabled] = useState(false);
+  const { signOut } = useAuth(); 
 
-  const handleSignOut = async () => {
+   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -27,8 +29,11 @@ export default function ProfileScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            console.log('Signing out...');
-            // Add sign out logic here
+            try {
+              await signOut();
+            } catch (error) {
+              console.error('Error signing out:', error);
+            }
           },
         },
       ]

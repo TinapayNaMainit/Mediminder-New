@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { supabase, DatabaseMedication, formatDate } from '../../services/supabaseClient';
 import MedicationCard from '../../components/MedicationCard';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function HomeScreen() {
   const [todaysMedications, setTodaysMedications] = useState<DatabaseMedication[]>([]);
+  const [medicationLogs, setMedicationLogs] = useState<{[key: string]: boolean}>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [streak, setStreak] = useState(0);
@@ -24,8 +26,19 @@ export default function HomeScreen() {
     total: 0,
   });
 
-  // For now, we'll use a static user ID
-  const CURRENT_USER_ID = '550e8400-e29b-41d4-a716-446655440000';
+   const { user } = useAuth();
+   const CURRENT_USER_ID = user?.id;
+   if (!CURRENT_USER_ID) {
+   return null;
+   }
+
+  // Reload data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadTodaysMedications();
+      loadStats();
+    }, [])
+  );
 
   useEffect(() => {
     loadTodaysMedications();
@@ -34,8 +47,6 @@ export default function HomeScreen() {
 
   const loadTodaysMedications = async () => {
     try {
-      console.log('Loading medications from Supabase...');
-      
       const { data, error } = await supabase
         .from('medications')
         .select('*')
@@ -43,13 +54,10 @@ export default function HomeScreen() {
         .eq('user_id', CURRENT_USER_ID)
         .order('reminder_time', { ascending: true });
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('Loaded medications:', data);
       setTodaysMedications(data || []);
+      await loadTodayLogs(data || []);
       
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -57,6 +65,29 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const loadTodayLogs = async (medications: DatabaseMedication[]) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data: logs, error } = await supabase
+        .from('medication_logs')
+        .select('medication_id, status')
+        .eq('user_id', CURRENT_USER_ID)
+        .eq('log_date', today);
+
+      if (error) throw error;
+
+      const logMap: {[key: string]: boolean} = {};
+      logs?.forEach(log => {
+        logMap[log.medication_id] = log.status === 'taken' || log.status === 'skipped';
+      });
+      
+      setMedicationLogs(logMap);
+    } catch (error) {
+      console.error('Error loading logs:', error);
     }
   };
 
@@ -77,11 +108,11 @@ export default function HomeScreen() {
       
       setStats({
         taken,
-        pending: Math.max(0, todaysMedications.length - taken),
+        pending: Math.max(0, todaysMedications.length - total),
         total,
       });
 
-      setStreak(7); // Placeholder
+      setStreak(7);
       
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -90,6 +121,9 @@ export default function HomeScreen() {
 
   const handleTakeMedication = async (medicationId: string) => {
     try {
+      // Optimistically update UI
+      setMedicationLogs(prev => ({ ...prev, [medicationId]: true }));
+      
       const { error } = await supabase
         .from('medication_logs')
         .insert({
@@ -102,16 +136,19 @@ export default function HomeScreen() {
 
       if (error) throw error;
       
-      loadStats();
-      console.log('Medication marked as taken');
+      await loadStats();
       
     } catch (error) {
       console.error('Error logging medication:', error);
+      // Revert optimistic update on error
+      setMedicationLogs(prev => ({ ...prev, [medicationId]: false }));
     }
   };
 
   const handleSkipMedication = async (medicationId: string) => {
     try {
+      setMedicationLogs(prev => ({ ...prev, [medicationId]: true }));
+      
       const { error } = await supabase
         .from('medication_logs')
         .insert({
@@ -124,11 +161,11 @@ export default function HomeScreen() {
 
       if (error) throw error;
       
-      loadStats();
-      console.log('Medication marked as skipped');
+      await loadStats();
       
     } catch (error) {
       console.error('Error skipping medication:', error);
+      setMedicationLogs(prev => ({ ...prev, [medicationId]: false }));
     }
   };
 
@@ -172,6 +209,7 @@ export default function HomeScreen() {
                 medication={medication}
                 onTake={() => handleTakeMedication(medication.id)}
                 onSkip={() => handleSkipMedication(medication.id)}
+                takenToday={medicationLogs[medication.id] || false}
               />
             ))
           ) : (
@@ -204,7 +242,7 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Today's Stats</Text>
+          <Text style={styles.sectionTitle}>Today's Progress</Text>
           <View style={styles.statsContainer}>
             <LinearGradient
               colors={['#10B981', '#059669']}
@@ -230,7 +268,7 @@ export default function HomeScreen() {
   );
 }
 
-// ... (include all the same styles from before)
+// ... (same styles as before)
 const styles = StyleSheet.create({
   container: {
     flex: 1,

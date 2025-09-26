@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
-// Simple medication interface
 interface Medication {
   id: string;
   medication_name: string;
@@ -25,6 +24,7 @@ interface MedicationCardProps {
   onTake: () => void;
   onSkip: () => void;
   nextDose?: string;
+  takenToday?: boolean; // Add this prop
 }
 
 const formatTime = (time: string): string => {
@@ -35,7 +35,7 @@ const formatTime = (time: string): string => {
       hour12: true,
     });
   } catch {
-    return time; // Return original if formatting fails
+    return time;
   }
 };
 
@@ -44,10 +44,23 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
   onTake,
   onSkip,
   nextDose,
+  takenToday = false,
 }) => {
+  const [localTaken, setLocalTaken] = useState(takenToday);
+
+  const handleTake = () => {
+    setLocalTaken(true);
+    onTake();
+  };
+
+  const handleSkip = () => {
+    setLocalTaken(true);
+    onSkip();
+  };
+
   return (
     <LinearGradient
-      colors={['#667EEA', '#764BA2']}
+      colors={localTaken ? ['#10B981', '#059669'] : ['#667EEA', '#764BA2']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.card}
@@ -74,29 +87,36 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
         </View>
       )}
 
-      {nextDose && (
+      {nextDose && !localTaken && (
         <View style={styles.nextDoseContainer}>
           <Text style={styles.nextDoseLabel}>Next dose in:</Text>
           <Text style={styles.nextDose}>{nextDose}</Text>
         </View>
       )}
 
-      <View style={styles.actions}>
-        <Pressable style={styles.skipButton} onPress={onSkip}>
-          <Ionicons name="close-outline" size={20} color="#EF4444" />
-          <Text style={styles.skipText}>Skip</Text>
-        </Pressable>
-        
-        <Pressable style={styles.takeButton} onPress={onTake}>
-          <LinearGradient
-            colors={['#10B981', '#059669']}
-            style={styles.takeButtonGradient}
-          >
-            <Ionicons name="checkmark-outline" size={20} color="white" />
-            <Text style={styles.takeText}>Take Now</Text>
-          </LinearGradient>
-        </Pressable>
-      </View>
+      {localTaken ? (
+        <View style={styles.takenContainer}>
+          <Ionicons name="checkmark-circle" size={32} color="white" />
+          <Text style={styles.takenText}>Taken Today</Text>
+        </View>
+      ) : (
+        <View style={styles.actions}>
+          <Pressable style={styles.skipButton} onPress={handleSkip}>
+            <Ionicons name="close-outline" size={20} color="#EF4444" />
+            <Text style={styles.skipText}>Skip</Text>
+          </Pressable>
+          
+          <Pressable style={styles.takeButton} onPress={handleTake}>
+            <LinearGradient
+              colors={['#10B981', '#059669']}
+              style={styles.takeButtonGradient}
+            >
+              <Ionicons name="checkmark-outline" size={20} color="white" />
+              <Text style={styles.takeText}>Take Now</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
+      )}
     </LinearGradient>
   );
 };
@@ -213,6 +233,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  takenContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  takenText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
 });
-
 export default MedicationCard;

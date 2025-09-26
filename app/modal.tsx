@@ -12,6 +12,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabaseClient';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AddMedicationModal() {
   const [medicationName, setMedicationName] = useState('');
@@ -23,8 +24,11 @@ export default function AddMedicationModal() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // For now, we'll use a static user ID - you'll replace this with actual auth
-  const CURRENT_USER_ID = '550e8400-e29b-41d4-a716-446655440000'; // Replace with actual authenticated user ID
+const { user } = useAuth();
+const CURRENT_USER_ID = user?.id;
+if (!CURRENT_USER_ID) {
+  return null;
+}
 
   const handleAdd = async () => {
     if (!medicationName.trim() || !dosage.trim()) {
@@ -32,7 +36,6 @@ export default function AddMedicationModal() {
       return;
     }
 
-    // Validate time format
     const hour = parseInt(reminderHour);
     const minute = parseInt(reminderMinute);
     
@@ -49,7 +52,6 @@ export default function AddMedicationModal() {
     setLoading(true);
 
     try {
-      // Format time properly for database
       const formattedTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
       const now = new Date().toISOString();
       
@@ -67,31 +69,28 @@ export default function AddMedicationModal() {
         updated_at: now,
       };
 
-      console.log('Adding medication to Supabase:', medicationData);
-
-      // Insert into Supabase
       const { data, error } = await supabase
         .from('medications')
         .insert(medicationData)
         .select()
         .single();
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('Medication added successfully:', data);
-      
       Alert.alert(
         'Success!', 
-        `${medicationName} has been added to your medications.`,
+        `${medicationName} has been added successfully.`,
         [
           { 
             text: 'OK', 
             onPress: () => {
               resetForm();
+              // Navigate back and trigger refresh
               router.back();
+              // Force refresh the home screen by navigating to it
+              setTimeout(() => {
+                router.push('/(tabs)');
+              }, 100);
             }
           }
         ]
@@ -99,18 +98,7 @@ export default function AddMedicationModal() {
 
     } catch (error: any) {
       console.error('Error adding medication:', error);
-      
-      let errorMessage = 'Failed to add medication. Please try again.';
-      
-      if (error?.message?.includes('duplicate key')) {
-        errorMessage = 'This medication already exists.';
-      } else if (error?.message?.includes('foreign key')) {
-        errorMessage = 'User authentication required.';
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
-      
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', 'Failed to add medication. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -125,18 +113,6 @@ export default function AddMedicationModal() {
     setReminderMinute('00');
     setNotes('');
   };
-
-  const dosageUnits = ['mg', 'ml', 'tablets', 'capsules', 'drops', 'grams'];
-  const frequencies = [
-    'Once daily',
-    'Twice daily', 
-    'Three times daily',
-    'Four times daily',
-    'Every 12 hours',
-    'Every 8 hours',
-    'Every 6 hours',
-    'As needed'
-  ];
 
   return (
     <View style={styles.container}>
@@ -180,19 +156,17 @@ export default function AddMedicationModal() {
           </View>
           <View style={[styles.inputGroup, { flex: 1 }]}>
             <Text style={styles.label}>Unit</Text>
-            <Pressable style={styles.pickerContainer}>
+            <View style={styles.pickerContainer}>
               <Text style={styles.pickerText}>{dosageUnit}</Text>
-              <Ionicons name="chevron-down" size={16} color="#6B7280" />
-            </Pressable>
+            </View>
           </View>
         </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>How often?</Text>
-          <Pressable style={styles.pickerContainer}>
+          <View style={styles.pickerContainer}>
             <Text style={styles.pickerText}>{frequency}</Text>
-            <Ionicons name="chevron-down" size={16} color="#6B7280" />
-          </Pressable>
+          </View>
         </View>
 
         <View style={styles.inputGroup}>
@@ -202,7 +176,6 @@ export default function AddMedicationModal() {
               style={[styles.input, styles.timeInput]}
               value={reminderHour}
               onChangeText={(text) => {
-                // Only allow numbers and max 2 digits
                 const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
                 setReminderHour(cleaned);
               }}
@@ -216,7 +189,6 @@ export default function AddMedicationModal() {
               style={[styles.input, styles.timeInput]}
               value={reminderMinute}
               onChangeText={(text) => {
-                // Only allow numbers and max 2 digits
                 const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
                 setReminderMinute(cleaned);
               }}
@@ -260,13 +232,9 @@ export default function AddMedicationModal() {
               <Ionicons name="add" size={24} color="white" />
             )}
             <Text style={styles.addButtonText}>
-              {loading ? 'Adding to Database...' : 'Add Medication'}
+              {loading ? 'Adding...' : 'Add Medication'}
             </Text>
           </LinearGradient>
-        </Pressable>
-
-        <Pressable style={styles.cancelButton} onPress={resetForm}>
-          <Text style={styles.cancelText}>Clear Form</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -317,29 +285,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: 'white',
     color: '#374151',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   row: {
     flexDirection: 'row',
   },
   pickerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 12,
     padding: 16,
     backgroundColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   pickerText: {
     fontSize: 16,
@@ -352,7 +307,6 @@ const styles = StyleSheet.create({
   timeInput: {
     width: 70,
     textAlign: 'center',
-    marginRight: 0,
   },
   timeSeparator: {
     fontSize: 24,
@@ -374,6 +328,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     marginTop: 24,
+    marginBottom: 40,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -391,16 +346,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginLeft: 8,
-  },
-  cancelButton: {
-    marginTop: 16,
-    marginBottom: 40,
-    alignItems: 'center',
-    padding: 16,
-  },
-  cancelText: {
-    fontSize: 16,
-    color: '#6B7280',
-    fontWeight: '600',
   },
 });

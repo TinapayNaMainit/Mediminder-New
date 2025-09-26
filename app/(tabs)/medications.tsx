@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,22 +7,53 @@ import {
   StyleSheet,
   Alert,
   RefreshControl,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { supabase } from '../../services/supabaseClient';
-import { useMedications, formatTime } from '../../hooks/useSupabase';
-import { Medication } from '../../constants/Types';
+import { router, useFocusEffect } from 'expo-router';
+import { supabase, DatabaseMedication, formatTime } from '../../services/supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function MedicationsScreen() {
-  const { medications, loading, refetch } = useMedications();
+  const [medications, setMedications] = useState<DatabaseMedication[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleDeleteMedication = async (id: string) => {
+const { user } = useAuth();
+const CURRENT_USER_ID = user?.id;
+if (!CURRENT_USER_ID) {
+  return null;
+}
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMedications();
+    }, [])
+  );
+
+  const loadMedications = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('medications')
+        .select('*')
+        .eq('user_id', CURRENT_USER_ID)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setMedications(data || []);
+    } catch (error) {
+      console.error('Error loading medications:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleDeleteMedication = (id: string, name: string) => {
     Alert.alert(
       'Delete Medication',
-      'Are you sure you want to delete this medication?',
+      `Are you sure you want to delete ${name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -36,7 +67,7 @@ export default function MedicationsScreen() {
                 .eq('id', id);
 
               if (error) throw error;
-              refetch();
+              setMedications(medications.filter(med => med.id !== id));
             } catch (error) {
               console.error('Error deleting medication:', error);
               Alert.alert('Error', 'Failed to delete medication');
@@ -51,11 +82,19 @@ export default function MedicationsScreen() {
     try {
       const { error } = await supabase
         .from('medications')
-        .update({ is_active: !currentStatus })
+        .update({ 
+          is_active: !currentStatus,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', id);
 
       if (error) throw error;
-      refetch();
+      
+      setMedications(
+        medications.map(med =>
+          med.id === id ? { ...med, is_active: !currentStatus } : med
+        )
+      );
     } catch (error) {
       console.error('Error updating medication status:', error);
     }
@@ -63,10 +102,10 @@ export default function MedicationsScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    refetch().finally(() => setRefreshing(false));
+    loadMedications();
   };
 
-  const renderMedicationItem = (medication: Medication) => (
+  const renderMedicationItem = (medication: DatabaseMedication) => (
     <View key={medication.id} style={styles.medicationItem}>
       <LinearGradient
         colors={medication.is_active ? ['#6366F1', '#8B5CF6'] : ['#9CA3AF', '#6B7280']}
@@ -78,27 +117,25 @@ export default function MedicationsScreen() {
             <Text style={styles.medicationDetails}>
               {medication.dosage} {medication.dosage_unit} • {medication.frequency}
             </Text>
-            <Text style={styles.medicationTime}>
+            <View style={styles.timeRow}>
               <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.8)" />
-              {' '}{formatTime(medication.reminder_time)}
-            </Text>
+              <Text style={styles.medicationTime}>
+                {formatTime(medication.reminder_time)}
+              </Text>
+            </View>
           </View>
           
           <View style={styles.medicationActions}>
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => toggleMedicationStatus(medication.id, medication.is_active)}
-            >
-              <Ionicons
-                name={medication.is_active ? 'pause' : 'play'}
-                size={20}
-                color="white"
-              />
-            </Pressable>
+            <Switch
+              value={medication.is_active}
+              onValueChange={() => toggleMedicationStatus(medication.id, medication.is_active)}
+              trackColor={{ false: 'rgba(255,255,255,0.3)', true: '#10B981' }}
+              thumbColor="white"
+            />
             
             <Pressable
               style={[styles.actionButton, styles.deleteButton]}
-              onPress={() => handleDeleteMedication(medication.id)}
+              onPress={() => handleDeleteMedication(medication.id, medication.medication_name)}
             >
               <Ionicons name="trash-outline" size={20} color="white" />
             </Pressable>
@@ -107,6 +144,7 @@ export default function MedicationsScreen() {
 
         {medication.notes && (
           <View style={styles.notesContainer}>
+            <Ionicons name="document-text-outline" size={16} color="rgba(255,255,255,0.8)" />
             <Text style={styles.notes}>{medication.notes}</Text>
           </View>
         )}
@@ -120,6 +158,9 @@ export default function MedicationsScreen() {
               {medication.is_active ? 'Active' : 'Paused'}
             </Text>
           </View>
+          <Text style={styles.createdDate}>
+            Added {new Date(medication.created_at).toLocaleDateString()}
+          </Text>
         </View>
       </LinearGradient>
     </View>
@@ -133,7 +174,7 @@ export default function MedicationsScreen() {
       >
         <Text style={styles.headerTitle}>My Medications</Text>
         <Text style={styles.headerSubtitle}>
-          {medications.filter(m => m.is_active).length} active medications
+          {medications.filter(m => m.is_active).length} active • {medications.length} total
         </Text>
       </LinearGradient>
 
@@ -151,8 +192,20 @@ export default function MedicationsScreen() {
             <Ionicons name="medical-outline" size={64} color="#D1D5DB" />
             <Text style={styles.emptyTitle}>No medications yet</Text>
             <Text style={styles.emptyText}>
-              Add your first medication to start tracking your health
+              Add your first medication to start tracking your health journey
             </Text>
+            <Pressable
+              style={styles.emptyAddButton}
+              onPress={() => router.push('/modal')}
+            >
+              <LinearGradient
+                colors={['#6366F1', '#8B5CF6']}
+                style={styles.emptyAddButtonGradient}
+              >
+                <Ionicons name="add" size={24} color="white" />
+                <Text style={styles.emptyAddButtonText}>Add First Medication</Text>
+              </LinearGradient>
+            </Pressable>
           </View>
         )}
       </ScrollView>
@@ -213,9 +266,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    marginBottom: 12,
   },
   medicationInfo: {
     flex: 1,
+    marginRight: 16,
   },
   medicationName: {
     fontSize: 20,
@@ -228,13 +283,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     marginBottom: 4,
   },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   medicationTime: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.8)',
+    marginLeft: 4,
   },
   medicationActions: {
-    flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 12,
   },
   actionButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -245,6 +305,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.3)',
   },
   notesContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginTop: 12,
     padding: 12,
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -254,10 +316,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.9)',
     fontStyle: 'italic',
+    marginLeft: 8,
+    flex: 1,
   },
   statusContainer: {
-    marginTop: 12,
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
   },
   statusBadge: {
     paddingHorizontal: 12,
@@ -268,6 +334,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'white',
     fontWeight: '600',
+  },
+  createdDate: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
   },
   emptyState: {
     alignItems: 'center',
@@ -286,6 +356,23 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 24,
+  },
+  emptyAddButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  emptyAddButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+  },
+  emptyAddButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+    marginLeft: 8,
   },
   fab: {
     position: 'absolute',

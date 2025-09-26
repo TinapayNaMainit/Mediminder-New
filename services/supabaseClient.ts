@@ -1,9 +1,10 @@
 import 'react-native-url-polyfill/auto';
+import 'react-native-get-random-values';
 import { createClient } from '@supabase/supabase-js';
+import 'react-native-polyfill-globals/auto';
 
-// Replace these with your actual Supabase project credentials
-const supabaseUrl = 'https://yohyvjvhipztuchccinx.supabase.co'; // e.g., 'https://xyzcompany.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvaHl2anZoaXB6dHVjaGNjaW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2Nzg3MjgsImV4cCI6MjA3NDI1NDcyOH0.fCw9ogLvrDMwdWFtM2MPhq70Xg0Xf1FniDlihQ4k7T4'; // Your anon/public key
+const supabaseUrl = 'https://yohyvjvhipztuchccinx.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvaHl2anZoaXB6dHVjaGNjaW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2Nzg3MjgsImV4cCI6MjA3NDI1NDcyOH0.fCw9ogLvrDMwdWFtM2MPhq70Xg0Xf1FniDlihQ4k7T4';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -13,7 +14,18 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Types matching your database schema
+// Auth helper functions
+export const getCurrentUserId = async (): Promise<string | null> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id || null;
+};
+
+export const getCurrentUser = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user || null;
+};
+
+// Database interfaces remain the same
 export interface DatabaseMedication {
   id: string;
   user_id: string;
@@ -44,16 +56,6 @@ export interface DatabaseMedicationLog {
   logged_at: string;
 }
 
-export interface DatabaseUser {
-  id: string;
-  email: string;
-  role: 'user' | 'admin';
-  ai_companion_enabled: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-// Helper functions
 export const formatDate = (date: string): string => {
   return new Date(date).toLocaleDateString('en-US', {
     weekday: 'short',

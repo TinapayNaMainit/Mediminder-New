@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,18 +9,28 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { supabase } from '../../services/supabaseClient';
-import { MedicationLog, Medication } from '../../constants/Types';
-import { formatDate } from '../../hooks/useSupabase';
+import { useAuth } from '../../contexts/AuthContext';
 
-interface LogWithMedication extends MedicationLog {
-  medications: Medication;
+interface LogWithMedication {
+  id: string;
+  medication_id: string;
+  user_id: string;
+  log_date: string;
+  status: 'taken' | 'missed' | 'skipped';
+  notes?: string;
+  logged_at: string;
+  medications: {
+    medication_name: string;
+    dosage: string;
+    dosage_unit: string;
+  };
 }
 
 export default function HistoryScreen() {
   const [logs, setLogs] = useState<LogWithMedication[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'all'>('week');
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     taken: 0,
@@ -29,9 +39,17 @@ export default function HistoryScreen() {
     total: 0,
   });
 
-  useEffect(() => {
-    loadHistory();
-  }, [selectedPeriod]);
+const { user } = useAuth();
+const CURRENT_USER_ID = user?.id;
+if (!CURRENT_USER_ID) {
+  return null;
+}
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [selectedPeriod])
+  );
 
   const loadHistory = async () => {
     try {
@@ -39,8 +57,9 @@ export default function HistoryScreen() {
         .from('medication_logs')
         .select(`
           *,
-          medications (*)
+          medications (medication_name, dosage, dosage_unit)
         `)
+        .eq('user_id', CURRENT_USER_ID)
         .order('logged_at', { ascending: false });
 
       const now = new Date();
@@ -52,7 +71,7 @@ export default function HistoryScreen() {
         query = query.gte('logged_at', monthAgo.toISOString());
       }
 
-      const { data, error } = await query;
+      const { data, error } = await query.limit(50);
 
       if (error) throw error;
       
@@ -73,7 +92,6 @@ export default function HistoryScreen() {
     } catch (error) {
       console.error('Error loading history:', error);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -115,7 +133,11 @@ export default function HistoryScreen() {
           {log.medications?.dosage} {log.medications?.dosage_unit}
         </Text>
         <Text style={styles.logTime}>
-          {formatDate(log.logged_at)} at{' '}
+          {new Date(log.logged_at).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+          })} at{' '}
           {new Date(log.logged_at).toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
@@ -152,7 +174,6 @@ export default function HistoryScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Period Selector */}
         <View style={styles.periodSelector}>
           {(['week', 'month', 'all'] as const).map((period) => (
             <Pressable
@@ -176,7 +197,6 @@ export default function HistoryScreen() {
           ))}
         </View>
 
-        {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <LinearGradient
             colors={['#10B981', '#059669']}
@@ -202,7 +222,6 @@ export default function HistoryScreen() {
           </View>
         </View>
 
-        {/* History List */}
         <View style={styles.historySection}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
           
