@@ -8,6 +8,7 @@ import { useColorScheme } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../contexts/AuthContext';
 import AuthWrapper from '../components/AuthWrapper';
+import { ProfileProvider } from '../contexts/ProfileContext';
 
 export {
   ErrorBoundary,
@@ -48,16 +49,18 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
-        <AuthWrapper>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ 
-              presentation: 'modal',
-              headerShown: false
-            }} />
-          </Stack>
-          <StatusBar style="light" />
-        </AuthWrapper>
+        <ProfileProvider>
+          <AuthWrapper>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ 
+                presentation: 'modal',
+                headerShown: false
+              }} />
+            </Stack>
+            <StatusBar style="light" />
+          </AuthWrapper>
+        </ProfileProvider>
       </AuthProvider>
     </ThemeProvider>
   );

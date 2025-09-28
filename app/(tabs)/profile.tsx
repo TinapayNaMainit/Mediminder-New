@@ -7,19 +7,24 @@ import {
   StyleSheet,
   Switch,
   Alert,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProfile } from '../../contexts/ProfileContext';
+import { profileService } from '../../services/profileService';
+import EditProfileModal from '../../components/EditProfileModal';
 
 export default function ProfileScreen() {
+  const { signOut, user } = useAuth();
+  const { profile } = useProfile();
+  const [showEditModal, setShowEditModal] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
-  const [aiCompanionEnabled, setAiCompanionEnabled] = useState(false);
-  const { signOut } = useAuth(); 
 
-   const handleSignOut = async () => {
+  const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -40,7 +45,11 @@ export default function ProfileScreen() {
     );
   };
 
-  interface SettingItemProps {
+  const displayName = profile?.display_name || 'Loading...';
+  const initials = profile ? profileService.getInitials(displayName) : 'U';
+  const avatarColor = profile ? profileService.getAvatarColor(displayName) : '#667EEA';
+
+  const SettingItem: React.FC<{
     title: string;
     subtitle?: string;
     value?: boolean;
@@ -48,17 +57,7 @@ export default function ProfileScreen() {
     onPress?: () => void;
     showArrow?: boolean;
     icon: string;
-  }
-
-  const SettingItem: React.FC<SettingItemProps> = ({ 
-    title, 
-    subtitle, 
-    value, 
-    onValueChange, 
-    onPress, 
-    showArrow = false, 
-    icon 
-  }) => (
+  }> = ({ title, subtitle, value, onValueChange, onPress, showArrow = false, icon }) => (
     <Pressable
       style={styles.settingItem}
       onPress={onPress}
@@ -94,12 +93,30 @@ export default function ProfileScreen() {
         style={styles.header}
       >
         <View style={styles.profileInfo}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>JD</Text>
-          </View>
+          <Pressable onPress={() => setShowEditModal(true)}>
+            {profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+            ) : (
+              <LinearGradient
+                colors={[avatarColor, avatarColor]}
+                style={styles.avatar}
+              >
+                <Text style={styles.avatarText}>{initials}</Text>
+              </LinearGradient>
+            )}
+            <View style={styles.editIcon}>
+              <Ionicons name="pencil" size={16} color="white" />
+            </View>
+          </Pressable>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>John Doe</Text>
-            <Text style={styles.userEmail}>john@example.com</Text>
+            <Text style={styles.userName}>{displayName}</Text>
+            <Text style={styles.userEmail}>{user?.email}</Text>
+            <Pressable 
+              style={styles.editProfileButton}
+              onPress={() => setShowEditModal(true)}
+            >
+              <Text style={styles.editProfileText}>Edit Profile</Text>
+            </Pressable>
           </View>
         </View>
       </LinearGradient>
@@ -133,20 +150,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* AI Companion Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>AI Assistant</Text>
-          <View style={styles.settingsGroup}>
-            <SettingItem
-              title="AI Companion"
-              subtitle="Get personalized medication insights and support"
-              value={aiCompanionEnabled}
-              onValueChange={setAiCompanionEnabled}
-              icon="chatbubbles"
-            />
-          </View>
-        </View>
-
         {/* Support Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
@@ -164,13 +167,6 @@ export default function ProfileScreen() {
               onPress={() => Alert.alert('Contact Support', 'Feature coming soon!')}
               showArrow
               icon="mail"
-            />
-            <SettingItem
-              title="Rate App"
-              subtitle="Share your feedback"
-              onPress={() => Alert.alert('Rate App', 'Feature coming soon!')}
-              showArrow
-              icon="star"
             />
           </View>
         </View>
@@ -193,9 +189,13 @@ export default function ProfileScreen() {
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>MedReminder v1.0.0</Text>
-          <Text style={styles.footerSubtext}>Made with ❤️ for your health</Text>
         </View>
       </ScrollView>
+
+      <EditProfileModal
+        visible={showEditModal}
+        onClose={() => setShowEditModal(false)}
+      />
     </View>
   );
 }
@@ -215,18 +215,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 20,
+    position: 'relative',
   },
   avatarText: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '700',
     color: 'white',
+  },
+  editIcon: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: '#6366F1',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
   },
   userInfo: {
     flex: 1,
@@ -240,6 +253,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'rgba(255,255,255,0.8)',
     marginTop: 4,
+    marginBottom: 12,
+  },
+  editProfileButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  editProfileText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -322,10 +348,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     fontWeight: '600',
-  },
-  footerSubtext: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginTop: 4,
   },
 });

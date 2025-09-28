@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import 'react-native-get-random-values';
+import 'web-streams-polyfill/polyfill';
 import { createClient } from '@supabase/supabase-js';
-import 'react-native-polyfill-globals/auto';
 
 const supabaseUrl = 'https://yohyvjvhipztuchccinx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvaHl2anZoaXB6dHVjaGNjaW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2Nzg3MjgsImV4cCI6MjA3NDI1NDcyOH0.fCw9ogLvrDMwdWFtM2MPhq70Xg0Xf1FniDlihQ4k7T4';
