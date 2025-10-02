@@ -19,11 +19,8 @@ export default function TabLayout() {
             case 'medications':
               iconName = focused ? 'medical' : 'medical-outline';
               break;
-            case 'history':
-              iconName = focused ? 'analytics' : 'analytics-outline';
-              break;
             case 'analytics':
-              iconName = focused ? 'stats-chart' : 'stats-chart-outline';
+              iconName = focused ? 'analytics' : 'analytics-outline';
               break;
             case 'profile':
               iconName = focused ? 'person' : 'person-outline';
@@ -81,12 +78,6 @@ export default function TabLayout() {
         name="medications"
         options={{
           title: 'Medications',
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
         }}
       />
       <Tabs.Screen

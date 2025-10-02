@@ -14,9 +14,15 @@ import { supabase, DatabaseMedication, formatDate } from '../../services/supabas
 import MedicationCard from '../../components/MedicationCard';
 import { useAuth } from '../../contexts/AuthContext';
 
+interface MedicationStatus {
+  taken: boolean;
+  skipped: boolean;
+  status: 'taken' | 'skipped' | 'missed' | null;
+}
+
 export default function HomeScreen() {
   const [todaysMedications, setTodaysMedications] = useState<DatabaseMedication[]>([]);
-  const [medicationLogs, setMedicationLogs] = useState<{[key: string]: boolean}>({});
+  const [medicationLogs, setMedicationLogs] = useState<{[key: string]: MedicationStatus}>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [streak, setStreak] = useState(0);
@@ -26,11 +32,12 @@ export default function HomeScreen() {
     total: 0,
   });
 
-   const { user } = useAuth();
-   const CURRENT_USER_ID = user?.id;
-   if (!CURRENT_USER_ID) {
-   return null;
-   }
+  const { user } = useAuth();
+  const CURRENT_USER_ID = user?.id;
+  
+  if (!CURRENT_USER_ID) {
+    return null;
+  }
 
   // Reload data when screen comes into focus
   useFocusEffect(
@@ -80,9 +87,26 @@ export default function HomeScreen() {
 
       if (error) throw error;
 
-      const logMap: {[key: string]: boolean} = {};
+      const logMap: {[key: string]: MedicationStatus} = {};
+      
+      // Initialize all medications as not taken/skipped
+      medications.forEach(med => {
+        logMap[med.id] = {
+          taken: false,
+          skipped: false,
+          status: null
+        };
+      });
+      
+      // Update based on actual logs
       logs?.forEach(log => {
-        logMap[log.medication_id] = log.status === 'taken' || log.status === 'skipped';
+        if (logMap[log.medication_id]) {
+          logMap[log.medication_id] = {
+            taken: log.status === 'taken',
+            skipped: log.status === 'skipped',
+            status: log.status as 'taken' | 'skipped' | 'missed'
+          };
+        }
       });
       
       setMedicationLogs(logMap);
@@ -112,60 +136,171 @@ export default function HomeScreen() {
         total,
       });
 
-      setStreak(7);
+      // Load actual streak
+      await loadCurrentStreak();
       
     } catch (error) {
       console.error('Error loading stats:', error);
     }
   };
 
+  const loadCurrentStreak = async () => {
+    try {
+      // Get active medications count
+      const { data: medications } = await supabase
+        .from('medications')
+        .select('id')
+        .eq('user_id', CURRENT_USER_ID)
+        .eq('is_active', true);
+
+      const activeMedsCount = medications?.length || 0;
+      if (activeMedsCount === 0) {
+        setStreak(0);
+        return;
+      }
+
+      let streak = 0;
+      let checkDate = new Date();
+
+      // Check backwards from today
+      for (let i = 0; i < 30; i++) { // Check last 30 days max
+        const dateStr = checkDate.toISOString().split('T')[0];
+
+        const { data: logs } = await supabase
+          .from('medication_logs')
+          .select('status')
+          .eq('user_id', CURRENT_USER_ID)
+          .eq('log_date', dateStr)
+          .eq('status', 'taken');
+
+        const takenCount = logs?.length || 0;
+        
+        // Perfect day = took all medications
+        if (takenCount >= activeMedsCount) {
+          streak++;
+        } else {
+          break;
+        }
+
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      setStreak(streak);
+    } catch (error) {
+      console.error('Error calculating streak:', error);
+      setStreak(0);
+    }
+  };
+
   const handleTakeMedication = async (medicationId: string) => {
     try {
       // Optimistically update UI
-      setMedicationLogs(prev => ({ ...prev, [medicationId]: true }));
+      setMedicationLogs(prev => ({ 
+        ...prev, 
+        [medicationId]: { taken: true, skipped: false, status: 'taken' } 
+      }));
       
-      const { error } = await supabase
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Check if log already exists for today
+      const { data: existingLog } = await supabase
         .from('medication_logs')
-        .insert({
-          medication_id: medicationId,
-          user_id: CURRENT_USER_ID,
-          log_date: new Date().toISOString().split('T')[0],
-          status: 'taken',
-          logged_at: new Date().toISOString(),
-        });
+        .select('id')
+        .eq('medication_id', medicationId)
+        .eq('user_id', CURRENT_USER_ID)
+        .eq('log_date', today)
+        .single();
 
-      if (error) throw error;
+      if (existingLog) {
+        // Update existing log
+        const { error } = await supabase
+          .from('medication_logs')
+          .update({
+            status: 'taken',
+            logged_at: new Date().toISOString(),
+          })
+          .eq('id', existingLog.id);
+
+        if (error) throw error;
+      } else {
+        // Insert new log
+        const { error } = await supabase
+          .from('medication_logs')
+          .insert({
+            medication_id: medicationId,
+            user_id: CURRENT_USER_ID,
+            log_date: today,
+            status: 'taken',
+            logged_at: new Date().toISOString(),
+          });
+
+        if (error) throw error;
+      }
       
       await loadStats();
       
     } catch (error) {
       console.error('Error logging medication:', error);
       // Revert optimistic update on error
-      setMedicationLogs(prev => ({ ...prev, [medicationId]: false }));
+      setMedicationLogs(prev => ({ 
+        ...prev, 
+        [medicationId]: { taken: false, skipped: false, status: null } 
+      }));
     }
   };
 
   const handleSkipMedication = async (medicationId: string) => {
     try {
-      setMedicationLogs(prev => ({ ...prev, [medicationId]: true }));
+      setMedicationLogs(prev => ({ 
+        ...prev, 
+        [medicationId]: { taken: false, skipped: true, status: 'skipped' } 
+      }));
       
-      const { error } = await supabase
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Check if log already exists for today
+      const { data: existingLog } = await supabase
         .from('medication_logs')
-        .insert({
-          medication_id: medicationId,
-          user_id: CURRENT_USER_ID,
-          log_date: new Date().toISOString().split('T')[0],
-          status: 'skipped',
-          logged_at: new Date().toISOString(),
-        });
+        .select('id')
+        .eq('medication_id', medicationId)
+        .eq('user_id', CURRENT_USER_ID)
+        .eq('log_date', today)
+        .single();
 
-      if (error) throw error;
+      if (existingLog) {
+        // Update existing log
+        const { error } = await supabase
+          .from('medication_logs')
+          .update({
+            status: 'skipped',
+            logged_at: new Date().toISOString(),
+          })
+          .eq('id', existingLog.id);
+
+        if (error) throw error;
+      } else {
+        // Insert new log
+        const { error } = await supabase
+          .from('medication_logs')
+          .insert({
+            medication_id: medicationId,
+            user_id: CURRENT_USER_ID,
+            log_date: today,
+            status: 'skipped',
+            logged_at: new Date().toISOString(),
+          });
+
+        if (error) throw error;
+      }
       
       await loadStats();
       
     } catch (error) {
       console.error('Error skipping medication:', error);
-      setMedicationLogs(prev => ({ ...prev, [medicationId]: false }));
+      setMedicationLogs(prev => ({ 
+        ...prev, 
+        [medicationId]: { taken: false, skipped: false, status: null } 
+      }));
     }
   };
 
@@ -209,7 +344,8 @@ export default function HomeScreen() {
                 medication={medication}
                 onTake={() => handleTakeMedication(medication.id)}
                 onSkip={() => handleSkipMedication(medication.id)}
-                takenToday={medicationLogs[medication.id] || false}
+                takenToday={medicationLogs[medication.id]?.taken || false}
+                skippedToday={medicationLogs[medication.id]?.skipped || false}
               />
             ))
           ) : (
@@ -268,7 +404,6 @@ export default function HomeScreen() {
   );
 }
 
-// ... (same styles as before)
 const styles = StyleSheet.create({
   container: {
     flex: 1,

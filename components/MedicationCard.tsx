@@ -24,15 +24,16 @@ interface MedicationCardProps {
   onTake: () => void;
   onSkip: () => void;
   nextDose?: string;
-  takenToday?: boolean; // Add this prop
+  takenToday?: boolean;
+  skippedToday?: boolean; // New prop to handle skipped state
 }
 
 const formatTime = (time: string): string => {
   try {
     return new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', {
-      hour: 'numeric',
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: true,
+      hour12: false,
     });
   } catch {
     return time;
@@ -45,22 +46,35 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
   onSkip,
   nextDose,
   takenToday = false,
+  skippedToday = false,
 }) => {
   const [localTaken, setLocalTaken] = useState(takenToday);
+  const [localSkipped, setLocalSkipped] = useState(skippedToday);
 
   const handleTake = () => {
     setLocalTaken(true);
+    setLocalSkipped(false);
     onTake();
   };
 
   const handleSkip = () => {
-    setLocalTaken(true);
+    setLocalSkipped(true);
+    setLocalTaken(false);
     onSkip();
+  };
+
+  // Determine card state
+  const isCompleted = localTaken || localSkipped;
+  
+  const getCardColors = (): [string, string] => {
+    if (localTaken) return ['#10B981', '#059669'];
+    if (localSkipped) return ['#F59E0B', '#D97706'];
+    return ['#667EEA', '#764BA2'];
   };
 
   return (
     <LinearGradient
-      colors={localTaken ? ['#10B981', '#059669'] : ['#667EEA', '#764BA2']}
+      colors={getCardColors()}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.card}
@@ -87,17 +101,23 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
         </View>
       )}
 
-      {nextDose && !localTaken && (
+      {nextDose && !isCompleted && (
         <View style={styles.nextDoseContainer}>
           <Text style={styles.nextDoseLabel}>Next dose in:</Text>
           <Text style={styles.nextDose}>{nextDose}</Text>
         </View>
       )}
 
-      {localTaken ? (
-        <View style={styles.takenContainer}>
-          <Ionicons name="checkmark-circle" size={32} color="white" />
-          <Text style={styles.takenText}>Taken Today</Text>
+      {isCompleted ? (
+        <View style={styles.completedContainer}>
+          <Ionicons 
+            name={localTaken ? "checkmark-circle" : "remove-circle"} 
+            size={32} 
+            color="white" 
+          />
+          <Text style={styles.completedText}>
+            {localTaken ? "Taken Today" : "Skipped Today"}
+          </Text>
         </View>
       ) : (
         <View style={styles.actions}>
@@ -233,17 +253,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
-  takenContainer: {
+  completedContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
   },
-  takenText: {
+  completedText: {
     color: 'white',
     fontSize: 18,
     fontWeight: '700',
     marginLeft: 8,
   },
 });
+
 export default MedicationCard;
