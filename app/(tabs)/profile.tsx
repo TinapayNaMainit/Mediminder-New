@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfile } from '../../contexts/ProfileContext';
 import { profileService } from '../../services/profileService';
+import { notificationService } from '../../services/notificationService';
 import EditProfileModal from '../../components/EditProfileModal';
 
 export default function ProfileScreen() {
@@ -24,7 +25,13 @@ export default function ProfileScreen() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
-  const handleSignOut = async () => {
+  // Update notification settings when toggles change
+  useEffect(() => {
+    notificationService.updateSettings({
+      soundEnabled,
+      vibrationEnabled,
+    });
+  }, [soundEnabled, vibrationEnabled]);  const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -44,6 +51,8 @@ export default function ProfileScreen() {
       ]
     );
   };
+
+
 
   const displayName = profile?.display_name || 'Loading...';
   const initials = profile ? profileService.getInitials(displayName) : 'U';
@@ -124,7 +133,7 @@ export default function ProfileScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Notifications Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
+          <Text style={styles.sectionTitle}>Notification Settings</Text>
           <View style={styles.settingsGroup}>
             <SettingItem
               title="Push Notifications"
@@ -189,6 +198,7 @@ export default function ProfileScreen() {
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>MedReminder v1.0.0</Text>
+          <Text style={styles.footerSubtext}>With Smart Notifications</Text>
         </View>
       </ScrollView>
 
@@ -348,5 +358,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     fontWeight: '600',
+  },
+  footerSubtext: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
   },
 });

@@ -38,8 +38,22 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6366F1",
+          "sounds": ["./assets/sounds/notification.wav"]
+        }
       ]
     ],
+    "notification": {
+      "icon": "./assets/images/notification.png",
+      "color": "#6366F1",
+      "androidMode": "default",
+      "androidCollapsedTitle": "Medication Reminder"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

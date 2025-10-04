@@ -14,17 +14,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { supabase, DatabaseMedication, formatTime } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { notificationService } from '../../services/notificationService';
 
 export default function MedicationsScreen() {
   const [medications, setMedications] = useState<DatabaseMedication[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-const { user } = useAuth();
-const CURRENT_USER_ID = user?.id;
-if (!CURRENT_USER_ID) {
-  return null;
-}
+  const { user } = useAuth();
+  const CURRENT_USER_ID = user?.id;
+  
+  if (!CURRENT_USER_ID) {
+    return null;
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -53,7 +55,7 @@ if (!CURRENT_USER_ID) {
   const handleDeleteMedication = (id: string, name: string) => {
     Alert.alert(
       'Delete Medication',
-      `Are you sure you want to delete ${name}?`,
+      `Are you sure you want to delete ${name}? This will also cancel all reminders.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -61,13 +63,20 @@ if (!CURRENT_USER_ID) {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Delete from database
               const { error } = await supabase
                 .from('medications')
                 .delete()
                 .eq('id', id);
 
               if (error) throw error;
+
+              // Cancel all notifications for this medication
+              await notificationService.cancelMedicationNotifications(id);
+              console.log(`Cancelled notifications for medication: ${id}`);
+
               setMedications(medications.filter(med => med.id !== id));
+              Alert.alert('Success', 'Medication and reminders deleted');
             } catch (error) {
               console.error('Error deleting medication:', error);
               Alert.alert('Error', 'Failed to delete medication');
@@ -78,25 +87,48 @@ if (!CURRENT_USER_ID) {
     );
   };
 
-  const toggleMedicationStatus = async (id: string, currentStatus: boolean) => {
+  const toggleMedicationStatus = async (id: string, currentStatus: boolean, medication: DatabaseMedication) => {
     try {
+      const newStatus = !currentStatus;
+      
       const { error } = await supabase
         .from('medications')
         .update({ 
-          is_active: !currentStatus,
+          is_active: newStatus,
           updated_at: new Date().toISOString()
         })
         .eq('id', id);
 
       if (error) throw error;
+
+      // Update notifications based on status
+      if (newStatus) {
+        // Reactivate: Schedule notifications
+        const [hour, minute] = medication.reminder_time.split(':').map(Number);
+        await notificationService.scheduleMedicationReminder(
+          id,
+          medication.medication_name,
+          medication.dosage,
+          medication.dosage_unit,
+          hour,
+          minute,
+          medication.notes || undefined
+        );
+        console.log(`Reactivated notifications for: ${medication.medication_name}`);
+      } else {
+        // Deactivate: Cancel notifications
+        await notificationService.cancelMedicationNotifications(id);
+        console.log(`Cancelled notifications for: ${medication.medication_name}`);
+      }
       
       setMedications(
         medications.map(med =>
-          med.id === id ? { ...med, is_active: !currentStatus } : med
+          med.id === id ? { ...med, is_active: newStatus } : med
         )
       );
     } catch (error) {
       console.error('Error updating medication status:', error);
+      Alert.alert('Error', 'Failed to update medication status');
     }
   };
 
@@ -118,7 +150,7 @@ if (!CURRENT_USER_ID) {
               {medication.dosage} {medication.dosage_unit} • {medication.frequency}
             </Text>
             <View style={styles.timeRow}>
-              <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.8)" />
+              <Ionicons name="notifications-outline" size={14} color="rgba(255,255,255,0.8)" />
               <Text style={styles.medicationTime}>
                 {formatTime(medication.reminder_time)}
               </Text>
@@ -128,7 +160,7 @@ if (!CURRENT_USER_ID) {
           <View style={styles.medicationActions}>
             <Switch
               value={medication.is_active}
-              onValueChange={() => toggleMedicationStatus(medication.id, medication.is_active)}
+              onValueChange={() => toggleMedicationStatus(medication.id, medication.is_active, medication)}
               trackColor={{ false: 'rgba(255,255,255,0.3)', true: '#10B981' }}
               thumbColor="white"
             />
@@ -154,8 +186,13 @@ if (!CURRENT_USER_ID) {
             styles.statusBadge,
             { backgroundColor: medication.is_active ? '#10B981' : '#6B7280' }
           ]}>
+            <Ionicons 
+              name={medication.is_active ? "notifications" : "notifications-off"} 
+              size={12} 
+              color="white" 
+            />
             <Text style={styles.statusText}>
-              {medication.is_active ? 'Active' : 'Paused'}
+              {medication.is_active ? 'Active • Reminders On' : 'Paused • Reminders Off'}
             </Text>
           </View>
           <Text style={styles.createdDate}>
@@ -326,9 +363,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
+    gap: 4,
   },
   statusText: {
     fontSize: 12,
