@@ -9,10 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabaseClient';
 
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -21,6 +23,9 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const { signIn, signUp } = useAuth();
 
@@ -55,7 +60,15 @@ export default function AuthScreen() {
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
-          Alert.alert('Login Failed', error.message);
+          if (error.message.includes('Email not confirmed')) {
+            Alert.alert(
+              'Email Not Verified',
+              'Please check your email inbox and click the verification link before logging in.\n\nDidn\'t receive the email? Check your spam folder.',
+              [{ text: 'OK' }]
+            );
+          } else {
+            Alert.alert('Login Failed', error.message);
+          }
         }
       } else {
         const { error } = await signUp(email, password);
@@ -63,8 +76,18 @@ export default function AuthScreen() {
           Alert.alert('Signup Failed', error.message);
         } else {
           Alert.alert(
-            'Success',
-            'Account created successfully! Please check your email for verification.'
+            'Account Created Successfully!',
+            `Welcome to MedReminder!\n\nWe've sent a verification email to:\n${email}\n\nPlease:\n1. Check your email inbox (and spam folder)\n2. Click the verification link\n3. You'll see a success page confirming your account is active\n4. Return here and log in\n\nThe verification link expires in 24 hours.`,
+            [
+              {
+                text: 'Got it!',
+                onPress: () => {
+                  setIsLogin(true);
+                  setPassword('');
+                  setConfirmPassword('');
+                }
+              }
+            ]
           );
         }
       }
@@ -72,6 +95,46 @@ export default function AuthScreen() {
       Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail.trim()) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    if (!validateEmail(resetEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setResetLoading(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: 'https://dlkyytmobjzhzivwowcb.supabase.co/auth/v1/verify',
+      });
+
+      if (error) throw error;
+
+      Alert.alert(
+        'Password Reset Email Sent!',
+        `We've sent password reset instructions to:\n${resetEmail}\n\nPlease:\n1. Check your email inbox (and spam folder)\n2. Click "Reset My Password" button\n3. The link will open in your browser\n4. Enter your new password\n5. You'll see a success message\n6. Return here and log in with your new password\n\nThe reset link expires in 1 hour.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setShowForgotPassword(false);
+              setResetEmail('');
+            }
+          }
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send reset email');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -170,6 +233,15 @@ export default function AuthScreen() {
               )}
             </View>
 
+            {isLogin && (
+              <Pressable 
+                style={styles.forgotPasswordContainer}
+                onPress={() => setShowForgotPassword(true)}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={[styles.authButton, loading && styles.authButtonDisabled]}
               onPress={handleAuth}
@@ -202,6 +274,62 @@ export default function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={showForgotPassword}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowForgotPassword(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <Pressable 
+                onPress={() => setShowForgotPassword(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalDescription}>
+              Enter your email address and we'll send you instructions to reset your password.
+            </Text>
+
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color="#6B7280" />
+              <TextInput
+                style={styles.input}
+                placeholder="Email address"
+                placeholderTextColor="#9CA3AF"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+            </View>
+
+            <Pressable
+              style={[styles.authButton, resetLoading && styles.authButtonDisabled]}
+              onPress={handleForgotPassword}
+              disabled={resetLoading}
+            >
+              <LinearGradient
+                colors={resetLoading ? ['#9CA3AF', '#6B7280'] : ['#6366F1', '#8B5CF6']}
+                style={styles.authButtonGradient}
+              >
+                {resetLoading ? (
+                  <Ionicons name="refresh" size={24} color="white" />
+                ) : (
+                  <Text style={styles.authButtonText}>Send Reset Link</Text>
+                )}
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -267,7 +395,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   inputContainer: {
-    marginBottom: 24,
+    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -292,6 +420,15 @@ const styles = StyleSheet.create({
   },
   passwordToggle: {
     padding: 8,
+  },
+  forgotPasswordContainer: {
+    alignItems: 'flex-end',
+    marginBottom: 16,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#6366F1',
+    fontWeight: '600',
   },
   authButton: {
     borderRadius: 12,
@@ -325,5 +462,39 @@ const styles = StyleSheet.create({
     color: '#6366F1',
     fontWeight: '600',
     marginLeft: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 24,
+    lineHeight: 20,
   },
 });
