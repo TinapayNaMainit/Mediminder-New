@@ -89,22 +89,18 @@ export const profileService = {
       if (!session?.user?.id) return null;
 
       const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `${session.user.id}-${Date.now()}.${fileExt}`;
+      const fileName = `${session.user.id}/${Date.now()}.${fileExt}`;
       
-      // Create FormData for React Native
-      const formData = new FormData();
-      formData.append('file', {
-        uri: uri,
-        type: `image/${fileExt}`,
-        name: fileName,
-      } as any);
-
+      // Read file as ArrayBuffer
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
+      
       // Upload to Supabase Storage
       const { data, error } = await supabase.storage
         .from('avatars')
-        .upload(fileName, formData, {
+        .upload(fileName, arrayBuffer, {
           contentType: `image/${fileExt}`,
-          upsert: false,
+          upsert: true,
         });
 
       if (error) {

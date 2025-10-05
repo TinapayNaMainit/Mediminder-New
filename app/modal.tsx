@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { notificationService } from '../services/notificationService';
 
 export default function AddMedicationModal() {
   const [medicationName, setMedicationName] = useState('');
@@ -24,11 +25,12 @@ export default function AddMedicationModal() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
-const { user } = useAuth();
-const CURRENT_USER_ID = user?.id;
-if (!CURRENT_USER_ID) {
-  return null;
-}
+  const { user } = useAuth();
+  const CURRENT_USER_ID = user?.id;
+  
+  if (!CURRENT_USER_ID) {
+    return null;
+  }
 
   const handleAdd = async () => {
     if (!medicationName.trim() || !dosage.trim()) {
@@ -69,6 +71,7 @@ if (!CURRENT_USER_ID) {
         updated_at: now,
       };
 
+      // Save to database
       const { data, error } = await supabase
         .from('medications')
         .insert(medicationData)
@@ -77,17 +80,32 @@ if (!CURRENT_USER_ID) {
 
       if (error) throw error;
 
+      // ✅ SCHEDULE NOTIFICATION - THIS WAS MISSING!
+      const notificationId = await notificationService.scheduleMedicationReminder(
+        data.id,
+        medicationName.trim(),
+        dosage.trim(),
+        dosageUnit,
+        hour,
+        minute,
+        notes.trim() || undefined
+      );
+
+      if (notificationId) {
+        console.log('✅ Notification scheduled successfully:', notificationId);
+      } else {
+        console.warn('⚠️ Failed to schedule notification');
+      }
+
       Alert.alert(
         'Success!', 
-        `${medicationName} has been added successfully.`,
+        `${medicationName} has been added and reminders are set for ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} daily.`,
         [
           { 
             text: 'OK', 
             onPress: () => {
               resetForm();
-              // Navigate back and trigger refresh
               router.back();
-              // Force refresh the home screen by navigating to it
               setTimeout(() => {
                 router.push('/(tabs)');
               }, 100);

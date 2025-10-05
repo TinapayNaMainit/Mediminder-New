@@ -71,14 +71,79 @@ export default function EnhancedAnalyticsScreen() {
 
   const CURRENT_USER_ID = user?.id;
 
+  // ✅ AUTO-REFRESH: Reload data every time screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (CURRENT_USER_ID) {
+        console.log('📊 Analytics screen focused - reloading data...');
         loadAllData();
       }
+      
+      // Set up real-time subscription when screen is focused
+      const subscription = setupRealtimeSubscription();
+      
+      // Cleanup subscription when screen loses focus
+      return () => {
+        console.log('📊 Analytics screen unfocused - cleaning up...');
+        subscription?.unsubscribe();
+      };
     }, [CURRENT_USER_ID, selectedPeriod, activeTab])
   );
 
+  // ✅ REAL-TIME UPDATES: Subscribe to database changes
+  const setupRealtimeSubscription = () => {
+    if (!CURRENT_USER_ID) return null;
+
+    console.log('🔄 Setting up real-time subscription for analytics...');
+
+    // Subscribe to medication_logs changes
+    const logsSubscription = supabase
+      .channel('analytics_logs_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'medication_logs',
+          filter: `user_id=eq.${CURRENT_USER_ID}`,
+        },
+        (payload) => {
+          console.log('📊 Medication log changed:', payload);
+          // Reload data when logs change
+          loadAllData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to medications changes
+    const medsSubscription = supabase
+      .channel('analytics_meds_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'medications',
+          filter: `user_id=eq.${CURRENT_USER_ID}`,
+        },
+        (payload) => {
+          console.log('💊 Medication changed:', payload);
+          // Reload data when medications change
+          loadAllData();
+        }
+      )
+      .subscribe();
+
+    // Return combined subscription for cleanup
+    return {
+      unsubscribe: () => {
+        logsSubscription.unsubscribe();
+        medsSubscription.unsubscribe();
+      }
+    };
+  };
+
+  // Also reload when selectedPeriod or activeTab changes
   useEffect(() => {
     if (CURRENT_USER_ID) {
       loadAllData();

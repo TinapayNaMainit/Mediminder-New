@@ -3,8 +3,8 @@ import 'react-native-get-random-values';
 import 'web-streams-polyfill/polyfill';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://yohyvjvhipztuchccinx.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvaHl2anZoaXB6dHVjaGNjaW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2Nzg3MjgsImV4cCI6MjA3NDI1NDcyOH0.fCw9ogLvrDMwdWFtM2MPhq70Xg0Xf1FniDlihQ4k7T4';
+const supabaseUrl = 'https://dlkyytmobjzhzivwowcb.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsa3l5dG1vYmp6aHppdndvd2NiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NzIzNjUsImV4cCI6MjA3NTE0ODM2NX0.8ylqRyk-5DjjOCQjSUcbq---G959IZeeDi6F0nJxNAc';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {

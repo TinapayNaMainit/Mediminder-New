@@ -63,7 +63,11 @@ export default function MedicationsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete from database
+              // Cancel all notifications for this medication FIRST
+              await notificationService.cancelMedicationNotifications(id);
+              console.log(`✅ Cancelled notifications for medication: ${id}`);
+
+              // Then delete from database
               const { error } = await supabase
                 .from('medications')
                 .delete()
@@ -71,12 +75,8 @@ export default function MedicationsScreen() {
 
               if (error) throw error;
 
-              // Cancel all notifications for this medication
-              await notificationService.cancelMedicationNotifications(id);
-              console.log(`Cancelled notifications for medication: ${id}`);
-
               setMedications(medications.filter(med => med.id !== id));
-              Alert.alert('Success', 'Medication and reminders deleted');
+              Alert.alert('Success', 'Medication and reminders deleted successfully');
             } catch (error) {
               console.error('Error deleting medication:', error);
               Alert.alert('Error', 'Failed to delete medication');
@@ -101,11 +101,11 @@ export default function MedicationsScreen() {
 
       if (error) throw error;
 
-      // Update notifications based on status
+      // Update notifications based on new status
       if (newStatus) {
-        // Reactivate: Schedule notifications
+        // Reactivating: Schedule notifications
         const [hour, minute] = medication.reminder_time.split(':').map(Number);
-        await notificationService.scheduleMedicationReminder(
+        const notificationId = await notificationService.scheduleMedicationReminder(
           id,
           medication.medication_name,
           medication.dosage,
@@ -114,13 +114,25 @@ export default function MedicationsScreen() {
           minute,
           medication.notes || undefined
         );
-        console.log(`Reactivated notifications for: ${medication.medication_name}`);
+        
+        if (notificationId) {
+          console.log(`✅ Reactivated and scheduled notification for: ${medication.medication_name}`);
+          Alert.alert(
+            'Activated',
+            `${medication.medication_name} is now active. You'll receive daily reminders at ${formatTime(medication.reminder_time)}`
+          );
+        } else {
+          console.warn('⚠️ Failed to schedule notification');
+          Alert.alert('Warning', 'Medication activated but notification scheduling failed. Please check notification permissions.');
+        }
       } else {
-        // Deactivate: Cancel notifications
+        // Deactivating: Cancel notifications
         await notificationService.cancelMedicationNotifications(id);
-        console.log(`Cancelled notifications for: ${medication.medication_name}`);
+        console.log(`✅ Deactivated and cancelled notifications for: ${medication.medication_name}`);
+        Alert.alert('Paused', `${medication.medication_name} reminders have been turned off`);
       }
       
+      // Update local state
       setMedications(
         medications.map(med =>
           med.id === id ? { ...med, is_active: newStatus } : med
