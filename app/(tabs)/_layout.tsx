@@ -1,3 +1,5 @@
+// Replace your app/(tabs)/_layout.tsx with this
+
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
@@ -18,6 +20,9 @@ export default function TabLayout() {
               break;
             case 'medications':
               iconName = focused ? 'medical' : 'medical-outline';
+              break;
+            case 'cabinet':
+              iconName = focused ? 'medkit' : 'medkit-outline';
               break;
             case 'analytics':
               iconName = focused ? 'analytics' : 'analytics-outline';
@@ -63,7 +68,7 @@ export default function TabLayout() {
           height: 70,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '600',
         },
       })}
@@ -78,6 +83,12 @@ export default function TabLayout() {
         name="medications"
         options={{
           title: 'Medications',
+        }}
+      />
+      <Tabs.Screen
+        name="cabinet"
+        options={{
+          title: 'Cabinet',
         }}
       />
       <Tabs.Screen
