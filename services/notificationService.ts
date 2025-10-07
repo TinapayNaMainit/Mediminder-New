@@ -1,3 +1,4 @@
+// services/notificationService.ts
 // @ts-nocheck
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -19,8 +20,8 @@ export interface NotificationSettings {
   vibrationEnabled: boolean;
   snoozeMinutes: number;
   escalateAfterMinutes: number;
-  quietHoursStart?: string; // "22:00"
-  quietHoursEnd?: string; // "07:00"
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
 }
 
 class NotificationService {
@@ -34,7 +35,7 @@ class NotificationService {
   // Request notification permissions
   async requestPermissions(): Promise<boolean> {
     if (!Device.isDevice) {
-      Alert.alert('Error', 'Notifications only work on physical devices');
+      console.warn('⚠️ Notifications only work on physical devices');
       return false;
     }
 
@@ -77,6 +78,7 @@ class NotificationService {
       });
     }
 
+    console.log('✅ Notification permissions granted');
     return true;
   }
 
@@ -103,12 +105,11 @@ class NotificationService {
     if (startTime < endTime) {
       return currentTime >= startTime && currentTime < endTime;
     } else {
-      // Quiet hours cross midnight
       return currentTime >= startTime || currentTime < endTime;
     }
   }
 
-  // Schedule initial medication reminder
+  // Schedule medication reminder (SCHEDULED ONLY - NO IMMEDIATE)
   async scheduleMedicationReminder(
     medicationId: string,
     medicationName: string,
@@ -119,6 +120,8 @@ class NotificationService {
     notes?: string
   ): Promise<string | null> {
     try {
+      console.log(`📅 Scheduling reminder for ${medicationName} at ${hour}:${minute}`);
+      
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: '💊 Time for your medication',
@@ -128,7 +131,7 @@ class NotificationService {
             medicationName,
             dosage,
             dosageUnit,
-            type: 'initial_reminder',
+            type: 'scheduled_reminder',
             notes,
           },
           sound: this.settings.soundEnabled ? 'default' : undefined,
@@ -143,101 +146,15 @@ class NotificationService {
         } as any,
       });
 
-      console.log(`Scheduled notification ${notificationId} for ${medicationName}`);
-
-      // Schedule escalated reminder
-      await this.scheduleEscalatedReminder(
-        medicationId,
-        medicationName,
-        dosage,
-        dosageUnit,
-        hour,
-        minute
-      );
-
+      console.log(`✅ Scheduled notification ${notificationId} for ${medicationName} at ${hour}:${minute}`);
       return notificationId;
     } catch (error) {
-      console.error('Error scheduling notification:', error);
+      console.error('❌ Error scheduling notification:', error);
       return null;
     }
   }
 
-  // Schedule escalated reminder (louder, more persistent)
-  private async scheduleEscalatedReminder(
-    medicationId: string,
-    medicationName: string,
-    dosage: string,
-    dosageUnit: string,
-    originalHour: number,
-    originalMinute: number
-  ): Promise<string | null> {
-    try {
-      // Calculate escalation time
-      const escalationMinutes = originalMinute + this.settings.escalateAfterMinutes;
-      let escalationHour = originalHour;
-      let escalationMinute = escalationMinutes;
-
-      if (escalationMinutes >= 60) {
-        escalationHour = (originalHour + 1) % 24;
-        escalationMinute = escalationMinutes - 60;
-      }
-
-      const notificationId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '⚠️ Medication Reminder',
-          body: `Don't forget: ${medicationName} - ${dosage}${dosageUnit}`,
-          data: {
-            medicationId,
-            medicationName,
-            type: 'escalated_reminder',
-          },
-          sound: 'default',
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          badge: 1,
-          sticky: true, // Persistent notification on Android
-          categoryIdentifier: 'URGENT_REMINDER',
-        },
-        trigger: {
-          hour: escalationHour,
-          minute: escalationMinute,
-          repeats: true,
-        } as any,
-      });
-
-      return notificationId;
-    } catch (error) {
-      console.error('Error scheduling escalated reminder:', error);
-      return null;
-    }
-  }
-
-  // Immediate notification (for testing or immediate reminders)
-  async sendImmediateNotification(
-    title: string,
-    body: string,
-    data?: any,
-    urgent: boolean = false
-  ): Promise<string> {
-    if (this.isQuietHours() && !urgent) {
-      console.log('Skipping notification during quiet hours');
-      return '';
-    }
-
-    return await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        data,
-        sound: this.settings.soundEnabled ? 'default' : undefined,
-        priority: urgent
-          ? Notifications.AndroidNotificationPriority.MAX
-          : Notifications.AndroidNotificationPriority.HIGH,
-      },
-      trigger: null, // Immediate
-    });
-  }
-
-  // Snooze notification
+  // Snooze notification (10 minutes)
   async snoozeNotification(
     medicationId: string,
     medicationName: string,
@@ -261,58 +178,54 @@ class NotificationService {
         seconds: snoozeSeconds,
       } as any,
     });
+
+    console.log(`⏰ Medication snoozed for ${this.settings.snoozeMinutes} minutes`);
   }
 
-  // Missed medication alert
-  async sendMissedMedicationAlert(
-    medicationName: string,
-    scheduledTime: string
-  ): Promise<void> {
-    await this.sendImmediateNotification(
-      '❗ Missed Medication',
-      `You missed ${medicationName} scheduled at ${scheduledTime}`,
-      {
-        type: 'missed_medication',
-        medicationName,
-      },
-      false
-    );
-  }
-
-  // Daily summary notification
-  async sendDailySummary(
-    taken: number,
-    total: number,
-    adherenceRate: number
-  ): Promise<void> {
-    let title = '📊 Daily Summary';
-    let body = '';
-    let emoji = '';
-
-    if (adherenceRate === 100) {
-      emoji = '🌟';
-      body = `Perfect! You took all ${total} medications today!`;
-    } else if (adherenceRate >= 80) {
-      emoji = '👍';
-      body = `Great job! ${taken}/${total} medications taken (${adherenceRate}%)`;
-    } else if (adherenceRate >= 50) {
-      emoji = '💪';
-      body = `Keep going! ${taken}/${total} medications taken. You can do better tomorrow!`;
-    } else {
-      emoji = '📋';
-      body = `${taken}/${total} medications taken today. Let's improve tomorrow!`;
+  // Send immediate notification (ONLY for low stock alerts in Medicine Cabinet)
+  async sendImmediateNotification(
+    title: string,
+    body: string,
+    data?: any,
+    urgent: boolean = false
+  ): Promise<string> {
+    // Only allow low_stock type notifications
+    if (data?.type !== 'low_stock') {
+      console.log('🔕 Immediate notification blocked (not low_stock):', title);
+      return '';
     }
 
-    await this.sendImmediateNotification(
-      `${emoji} ${title}`,
-      body,
-      { type: 'daily_summary', adherenceRate }
-    );
+    if (this.isQuietHours() && !urgent) {
+      console.log('🔕 Skipping notification during quiet hours');
+      return '';
+    }
+
+    try {
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data,
+          sound: this.settings.soundEnabled ? 'default' : undefined,
+          priority: urgent
+            ? Notifications.AndroidNotificationPriority.MAX
+            : Notifications.AndroidNotificationPriority.HIGH,
+        },
+        trigger: null, // Immediate
+      });
+
+      console.log('📢 Immediate notification sent:', title);
+      return notificationId;
+    } catch (error) {
+      console.error('❌ Error sending immediate notification:', error);
+      return '';
+    }
   }
 
   // Cancel specific notification
   async cancelNotification(notificationId: string): Promise<void> {
     await Notifications.cancelScheduledNotificationAsync(notificationId);
+    console.log(`🗑️ Cancelled notification: ${notificationId}`);
   }
 
   // Cancel all notifications for a medication
@@ -326,11 +239,14 @@ class NotificationService {
     for (const notification of medicationNotifications) {
       await Notifications.cancelScheduledNotificationAsync(notification.identifier);
     }
+
+    console.log(`🗑️ Cancelled ${medicationNotifications.length} notification(s) for medication ${medicationId}`);
   }
 
   // Cancel all notifications
   async cancelAllNotifications(): Promise<void> {
     await Notifications.cancelAllScheduledNotificationsAsync();
+    console.log('🗑️ Cancelled all scheduled notifications');
   }
 
   // Get all scheduled notifications
@@ -381,6 +297,8 @@ class NotificationService {
         },
       } as any,
     ]);
+
+    console.log('✅ Notification categories set up');
   }
 
   // Handle notification response (when user taps action button)
@@ -394,6 +312,8 @@ class NotificationService {
       const medicationId = notification.request.content.data?.medicationId;
 
       if (!medicationId) return;
+
+      console.log(`🔔 Notification action: ${actionIdentifier} for medication: ${medicationId}`);
 
       switch (actionIdentifier) {
         case 'TAKE_NOW':

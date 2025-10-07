@@ -173,8 +173,8 @@ export default function AddMedicationModal() {
         console.log('✅ Notification scheduled for', hour24, ':', minute);
       }
 
-     // Check if low stock (only if tracking)
-     if (trackInventory && parseInt(currentQuantity) <= parseInt(lowStockThreshold)) {
+      // Check if low stock (only if tracking)
+      if (trackInventory && parseInt(currentQuantity) <= parseInt(lowStockThreshold)) {
         await notificationService.sendImmediateNotification(
           '⚠️ Low Stock Alert',
           `${medicationName} is running low (${currentQuantity} remaining).`,
