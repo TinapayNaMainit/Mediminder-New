@@ -158,7 +158,7 @@ export default function AddMedicationModal() {
 
       if (error) throw error;
 
-      // Schedule notification
+      // Schedule notification (ONLY SCHEDULED - NO IMMEDIATE NOTIFICATIONS)
       const notificationId = await notificationService.scheduleMedicationReminder(
         data.id,
         medicationName.trim(),
@@ -173,14 +173,8 @@ export default function AddMedicationModal() {
         console.log('✅ Notification scheduled for', hour24, ':', minute);
       }
 
-      // Check if low stock (only if tracking)
-      if (trackInventory && parseInt(currentQuantity) <= parseInt(lowStockThreshold)) {
-        await notificationService.sendImmediateNotification(
-          '⚠️ Low Stock Alert',
-          `${medicationName} is running low (${currentQuantity} remaining).`,
-          { type: 'low_stock', medicationId: data.id }
-        );
-      }
+      // ❌ REMOVED: No more immediate low stock notifications
+      // Low stock is only shown visually in the Medicine Cabinet
 
       const timeDisplay = use24HourFormat 
         ? `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`

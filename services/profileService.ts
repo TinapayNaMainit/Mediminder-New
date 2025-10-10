@@ -1,3 +1,4 @@
+// services/profileService.ts
 import { supabase } from './supabaseClient';
 
 export interface UserProfile {
@@ -5,6 +6,9 @@ export interface UserProfile {
   user_id: string;
   display_name: string;
   avatar_url?: string;
+  role?: 'patient' | 'caregiver'; // Added role property
+  role_selected_at?: string; // Added role selection timestamp
+  connection_code?: string; // Added connection code
   created_at: string;
   updated_at: string;
 }
@@ -59,7 +63,7 @@ export const profileService = {
   },
 
   // Update profile
-  async updateProfile(updates: Partial<Pick<UserProfile, 'display_name' | 'avatar_url'>>): Promise<UserProfile | null> {
+  async updateProfile(updates: Partial<Pick<UserProfile, 'display_name' | 'avatar_url' | 'role'>>): Promise<UserProfile | null> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) return null;
