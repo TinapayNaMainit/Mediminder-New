@@ -158,7 +158,7 @@ export default function AddMedicationModal() {
 
       if (error) throw error;
 
-      // Schedule notification (ONLY SCHEDULED - NO IMMEDIATE NOTIFICATIONS)
+      // ✅ ONLY SCHEDULE DAILY REMINDER - NO IMMEDIATE NOTIFICATIONS
       const notificationId = await notificationService.scheduleMedicationReminder(
         data.id,
         medicationName.trim(),
@@ -173,8 +173,8 @@ export default function AddMedicationModal() {
         console.log('✅ Notification scheduled for', hour24, ':', minute);
       }
 
-      // ❌ REMOVED: No more immediate low stock notifications
-      // Low stock is only shown visually in the Medicine Cabinet
+      // ✅ NO LOW STOCK NOTIFICATIONS - Only visual indicators in Medicine Cabinet
+      // Low stock is shown visually in the Cabinet screen with red badges
 
       const timeDisplay = use24HourFormat 
         ? `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
@@ -342,10 +342,8 @@ export default function AddMedicationModal() {
                     onValueChange={(value) => {
                       setUse24HourFormat(!value);
                       if (!value) {
-                        // Switching to 24-hour
                         setReminderHour('8');
                       } else {
-                        // Switching to 12-hour
                         setReminderHour('8');
                         setAmPm('AM');
                       }

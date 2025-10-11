@@ -40,8 +40,8 @@ export default function RootLayout() {
     if (loaded) {
       SplashScreen.hideAsync();
       initializeNotifications();
-      // Reschedule all notifications when app starts
-      rescheduleAllNotifications();
+      // ✅ FIXED: No auto-rescheduling on app start
+      // Notifications are already scheduled when medications are added/edited
     }
   }, [loaded]);
 
@@ -71,88 +71,6 @@ export default function RootLayout() {
       }
     } catch (error) {
       console.error('❌ Error initializing notifications:', error);
-    }
-  };
-
-  const rescheduleAllNotifications = async () => {
-    try {
-      // Wait a bit for auth to be ready
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        console.log('📭 No user session, skipping notification rescheduling');
-        return;
-      }
-
-      console.log('🔄 Rescheduling notifications for user:', session.user.id);
-
-      // Get all active medications
-      const { data: medications, error } = await supabase
-        .from('medications')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .eq('is_active', true);
-
-      if (error) {
-        console.error('❌ Error fetching medications:', error);
-        return;
-      }
-
-      if (!medications || medications.length === 0) {
-        console.log('📭 No active medications found');
-        return;
-      }
-
-      console.log(`📋 Found ${medications.length} active medication(s)`);
-
-      // Cancel all existing notifications first
-      await notificationService.cancelAllNotifications();
-      console.log('🗑️ Cleared all existing notifications');
-
-      // Reschedule for each active medication
-      let successCount = 0;
-      for (const med of medications) {
-        try {
-          const [hour, minute] = med.reminder_time.split(':').map(Number);
-          const notificationId = await notificationService.scheduleMedicationReminder(
-            med.id,
-            med.medication_name,
-            med.dosage,
-            med.dosage_unit,
-            hour,
-            minute,
-            med.notes || undefined
-          );
-          
-          if (notificationId) {
-            successCount++;
-            console.log(`✅ Scheduled: ${med.medication_name} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
-          } else {
-            console.warn(`⚠️ Failed to schedule: ${med.medication_name}`);
-          }
-        } catch (medError) {
-          console.error(`❌ Error scheduling ${med.medication_name}:`, medError);
-        }
-      }
-
-      console.log(`✅ Successfully rescheduled ${successCount}/${medications.length} notifications`);
-      
-      // Log all scheduled notifications for debugging
-      const scheduledNotifications = await notificationService.getScheduledNotifications();
-      console.log(`📱 Total scheduled notifications: ${scheduledNotifications.length}`);
-      
-      if (scheduledNotifications.length > 0) {
-        console.log('📋 Scheduled notifications:');
-        scheduledNotifications.forEach((notif, index) => {
-          const trigger = notif.trigger as any;
-          console.log(`  ${index + 1}. ${notif.content.title}`);
-          console.log(`     ID: ${notif.identifier}`);
-          console.log(`     Trigger: ${JSON.stringify(trigger)}`);
-        });
-      }
-    } catch (error) {
-      console.error('❌ Error rescheduling notifications:', error);
     }
   };
 

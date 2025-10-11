@@ -66,7 +66,7 @@ export default function MedicineCabinetScreen() {
           filter: `user_id=eq.${CURRENT_USER_ID}`,
         },
         (payload) => {
-          console.log('Medication updated:', payload);
+          console.log('📦 Medication updated:', payload);
           loadMedications();
         }
       )
@@ -95,7 +95,7 @@ export default function MedicineCabinetScreen() {
 
       if (filter === 'low_stock') {
         filteredData = filteredData.filter(
-          med => med.current_quantity <= med.low_stock_threshold
+          med => med.current_quantity <= med.low_stock_threshold && med.low_stock_threshold > 0
         );
       } else if (filter === 'expiring') {
         const thirtyDaysFromNow = new Date();
@@ -109,11 +109,32 @@ export default function MedicineCabinetScreen() {
       }
 
       setMedications(filteredData);
+      
+      // ✅ CHECK LOW STOCK - VISUAL ONLY, NO NOTIFICATIONS
+      checkLowStockVisualIndicators(filteredData);
     } catch (error) {
-      console.error('Error loading medications:', error);
+      console.error('❌ Error loading medications:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // ✅ NEW: Visual-only low stock check (no notifications)
+  const checkLowStockVisualIndicators = (meds: MedicationInventory[]) => {
+    const lowStockMeds = meds.filter(
+      med => med.current_quantity <= med.low_stock_threshold && 
+             med.low_stock_threshold > 0 &&
+             med.current_quantity > 0
+    );
+    
+    if (lowStockMeds.length > 0) {
+      console.log('⚠️ Low stock medications (visual indicators only):');
+      lowStockMeds.forEach(med => {
+        console.log(`   - ${med.medication_name}: ${med.current_quantity} remaining`);
+      });
+      // The red badges and colors in the UI show this automatically
+      // NO notifications sent
     }
   };
 
@@ -122,10 +143,41 @@ export default function MedicineCabinetScreen() {
     loadMedications();
   };
 
-  const getStockStatus = (current: number, threshold: number) => {
-    if (current === 0) return { status: 'out', color: '#EF4444', icon: 'close-circle', text: 'Out of Stock' };
-    if (current <= threshold) return { status: 'low', color: '#F59E0B', icon: 'warning', text: 'Low Stock' };
-    return { status: 'good', color: '#10B981', icon: 'checkmark-circle', text: 'In Stock' };
+  const getStockStatus = (current: number, threshold: number, total: number) => {
+    // Handle medications without inventory tracking
+    if (threshold === 0 && total === 0) {
+      return { 
+        status: 'no_tracking', 
+        color: '#9CA3AF', 
+        icon: 'cube-outline', 
+        text: 'Not Tracked' 
+      };
+    }
+    
+    if (current === 0) {
+      return { 
+        status: 'out', 
+        color: '#EF4444', 
+        icon: 'close-circle', 
+        text: 'Out of Stock' 
+      };
+    }
+    
+    if (current <= threshold) {
+      return { 
+        status: 'low', 
+        color: '#F59E0B', 
+        icon: 'warning', 
+        text: 'Low Stock' 
+      };
+    }
+    
+    return { 
+      status: 'good', 
+      color: '#10B981', 
+      icon: 'checkmark-circle', 
+      text: 'In Stock' 
+    };
   };
 
   const getDaysUntilExpiry = (expiryDate: string) => {
@@ -159,7 +211,22 @@ export default function MedicineCabinetScreen() {
               return;
             }
 
+            // ✅ Prevent updating if it exceeds total quantity
+            if (newQty > medication.total_quantity) {
+              Alert.alert(
+                'Error', 
+                `Cannot exceed total quantity of ${medication.total_quantity}`
+              );
+              return;
+            }
+
             try {
+              console.log('📝 Updating quantity:', {
+                medication: medication.medication_name,
+                from: medication.current_quantity,
+                to: newQty
+              });
+
               const { error } = await supabase
                 .from('medications')
                 .update({ 
@@ -170,10 +237,19 @@ export default function MedicineCabinetScreen() {
 
               if (error) throw error;
 
+              // ✅ Show low stock warning VISUALLY only
+              if (newQty <= medication.low_stock_threshold && medication.low_stock_threshold > 0) {
+                Alert.alert(
+                  '⚠️ Low Stock',
+                  `${medication.medication_name} is now at ${newQty} ${medication.dosage_unit}.\n\nConsider restocking soon!`,
+                  [{ text: 'OK' }]
+                );
+              }
+
               Alert.alert('Success', 'Quantity updated successfully');
               loadMedications();
             } catch (error) {
-              console.error('Error updating quantity:', error);
+              console.error('❌ Error updating quantity:', error);
               Alert.alert('Error', 'Failed to update quantity');
             }
           }
@@ -184,7 +260,12 @@ export default function MedicineCabinetScreen() {
     );
   };
 
-  const renderFilterButton = (filterType: typeof filter, label: string, icon: string, count: number) => (
+  const renderFilterButton = (
+    filterType: typeof filter, 
+    label: string, 
+    icon: string, 
+    count: number
+  ) => (
     <Pressable
       key={filterType}
       style={[styles.filterButton, filter === filterType && styles.filterButtonActive]}
@@ -198,18 +279,27 @@ export default function MedicineCabinetScreen() {
       <Text style={[styles.filterText, filter === filterType && styles.filterTextActive]}>
         {label}
       </Text>
-      <View style={[styles.badge, filter === filterType && styles.badgeActive]}>
-        <Text style={[styles.badgeText, filter === filterType && styles.badgeTextActive]}>
-          {count}
-        </Text>
-      </View>
+      {count > 0 && (
+        <View style={[styles.badge, filter === filterType && styles.badgeActive]}>
+          <Text style={[styles.badgeText, filter === filterType && styles.badgeTextActive]}>
+            {count}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 
   const renderMedicationCard = (medication: MedicationInventory) => {
-    const stockInfo = getStockStatus(medication.current_quantity, medication.low_stock_threshold);
+    const isTracked = medication.total_quantity > 0 || medication.low_stock_threshold > 0;
+    const stockInfo = getStockStatus(
+      medication.current_quantity, 
+      medication.low_stock_threshold,
+      medication.total_quantity
+    );
     const expiryInfo = medication.expiry_date ? getExpiryStatus(medication.expiry_date) : null;
-    const percentRemaining = (medication.current_quantity / medication.total_quantity) * 100;
+    const percentRemaining = medication.total_quantity > 0 
+      ? (medication.current_quantity / medication.total_quantity) * 100 
+      : 0;
 
     return (
       <View key={medication.id} style={styles.card}>
@@ -227,66 +317,87 @@ export default function MedicineCabinetScreen() {
           />
         </View>
 
-        <View style={styles.progressSection}>
-          <View style={styles.quantityRow}>
-            <Text style={styles.quantityLabel}>Quantity Remaining</Text>
-            <Text style={styles.quantityValue}>
-              {medication.current_quantity} / {medication.total_quantity}
-            </Text>
-          </View>
-          <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill, 
-                { 
-                  width: `${Math.max(percentRemaining, 5)}%`,
-                  backgroundColor: stockInfo.color 
-                }
-              ]} 
-            />
-          </View>
-          <Text style={[styles.statusText, { color: stockInfo.color }]}>
-            {stockInfo.text}
-          </Text>
-        </View>
+        {isTracked ? (
+          <>
+            <View style={styles.progressSection}>
+              <View style={styles.quantityRow}>
+                <Text style={styles.quantityLabel}>Quantity Remaining</Text>
+                <Text style={styles.quantityValue}>
+                  {medication.current_quantity} / {medication.total_quantity}
+                </Text>
+              </View>
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { 
+                      width: `${Math.max(percentRemaining, 5)}%`,
+                      backgroundColor: stockInfo.color 
+                    }
+                  ]} 
+                />
+              </View>
+              <Text style={[styles.statusText, { color: stockInfo.color }]}>
+                {stockInfo.text}
+              </Text>
+            </View>
 
-        {expiryInfo && (
-          <View style={[styles.expirySection, expiryInfo.urgent && styles.expirySectionUrgent]}>
-            <Ionicons name="time-outline" size={16} color={expiryInfo.color} />
-            <Text style={[styles.expiryText, { color: expiryInfo.color }]}>
-              Expires: {new Date(medication.expiry_date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-              })} ({expiryInfo.text})
+            {expiryInfo && (
+              <View style={[styles.expirySection, expiryInfo.urgent && styles.expirySectionUrgent]}>
+                <Ionicons name="time-outline" size={16} color={expiryInfo.color} />
+                <Text style={[styles.expiryText, { color: expiryInfo.color }]}>
+                  Expires: {new Date(medication.expiry_date).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  })} ({expiryInfo.text})
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.cardActions}>
+              <Pressable 
+                style={styles.actionButton}
+                onPress={() => handleUpdateQuantity(medication)}
+              >
+                <Ionicons name="create-outline" size={18} color="#6366F1" />
+                <Text style={styles.actionButtonText}>Update Quantity</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={styles.actionButton}
+                onPress={() => router.push('/(tabs)/medications')}
+              >
+                <Ionicons name="information-circle-outline" size={18} color="#6366F1" />
+                <Text style={styles.actionButtonText}>View Details</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={styles.noTrackingSection}>
+            <Text style={styles.noTrackingText}>
+              Inventory tracking not enabled for this medication
             </Text>
+            <Pressable 
+              style={styles.actionButton}
+              onPress={() => router.push('/(tabs)/medications')}
+            >
+              <Ionicons name="settings-outline" size={18} color="#6366F1" />
+              <Text style={styles.actionButtonText}>Enable Tracking</Text>
+            </Pressable>
           </View>
         )}
-
-        <View style={styles.cardActions}>
-          <Pressable 
-            style={styles.actionButton}
-            onPress={() => handleUpdateQuantity(medication)}
-          >
-            <Ionicons name="create-outline" size={18} color="#6366F1" />
-            <Text style={styles.actionButtonText}>Update Quantity</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={styles.actionButton}
-            onPress={() => router.push('/(tabs)/medications')}
-          >
-            <Ionicons name="information-circle-outline" size={18} color="#6366F1" />
-            <Text style={styles.actionButtonText}>View Details</Text>
-          </Pressable>
-        </View>
       </View>
     );
   };
 
   if (!CURRENT_USER_ID) return null;
 
-  const lowStockCount = medications.filter(m => m.current_quantity <= m.low_stock_threshold).length;
+  const lowStockCount = medications.filter(
+    m => m.current_quantity <= m.low_stock_threshold && 
+         m.low_stock_threshold > 0
+  ).length;
+  
   const expiringCount = medications.filter(m => {
     if (!m.expiry_date) return false;
     const days = getDaysUntilExpiry(m.expiry_date);
@@ -325,7 +436,7 @@ export default function MedicineCabinetScreen() {
             </Text>
             <Text style={styles.emptyText}>
               {filter === 'all' 
-                ? 'Add medications to start tracking your inventory'
+                ? 'Add medications with inventory tracking enabled'
                 : 'Great! Everything looks good'}
             </Text>
           </View>
@@ -489,6 +600,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     flex: 1,
+  },
+  noTrackingSection: {
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    gap: 12,
+  },
+  noTrackingText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   cardActions: {
     flexDirection: 'row',
