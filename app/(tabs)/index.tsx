@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { supabase, DatabaseMedication, formatDate } from '../../services/supabaseClient';
 import MedicationCard from '../../components/MedicationCard';
+import AIChatHead from '../../components/AIChatHead';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface MedicationStatus {
@@ -31,6 +32,7 @@ export default function HomeScreen() {
     pending: 0,
     total: 0,
   });
+  const [aiCompanionEnabled, setAiCompanionEnabled] = useState(true);
 
   const { user } = useAuth();
   const CURRENT_USER_ID = user?.id;
@@ -44,13 +46,30 @@ export default function HomeScreen() {
     useCallback(() => {
       loadTodaysMedications();
       loadStats();
+      loadAICompanionStatus();
     }, [])
   );
 
   useEffect(() => {
     loadTodaysMedications();
     loadStats();
+    loadAICompanionStatus();
   }, []);
+
+  const loadAICompanionStatus = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('ai_companion_enabled')
+        .eq('user_id', CURRENT_USER_ID)
+        .single();
+
+      if (error) throw error;
+      setAiCompanionEnabled(data?.ai_companion_enabled ?? true);
+    } catch (error) {
+      console.error('Error loading AI companion status:', error);
+    }
+  };
 
   const loadTodaysMedications = async () => {
     try {
@@ -89,7 +108,6 @@ export default function HomeScreen() {
 
       const logMap: {[key: string]: MedicationStatus} = {};
       
-      // Initialize all medications as not taken/skipped
       medications.forEach(med => {
         logMap[med.id] = {
           taken: false,
@@ -98,7 +116,6 @@ export default function HomeScreen() {
         };
       });
       
-      // Update based on actual logs
       logs?.forEach(log => {
         if (logMap[log.medication_id]) {
           logMap[log.medication_id] = {
@@ -136,7 +153,6 @@ export default function HomeScreen() {
         total,
       });
 
-      // Load actual streak
       await loadCurrentStreak();
       
     } catch (error) {
@@ -146,7 +162,6 @@ export default function HomeScreen() {
 
   const loadCurrentStreak = async () => {
     try {
-      // Get active medications count
       const { data: medications } = await supabase
         .from('medications')
         .select('id')
@@ -162,8 +177,7 @@ export default function HomeScreen() {
       let streak = 0;
       let checkDate = new Date();
 
-      // Check backwards from today
-      for (let i = 0; i < 30; i++) { // Check last 30 days max
+      for (let i = 0; i < 30; i++) {
         const dateStr = checkDate.toISOString().split('T')[0];
 
         const { data: logs } = await supabase
@@ -175,7 +189,6 @@ export default function HomeScreen() {
 
         const takenCount = logs?.length || 0;
         
-        // Perfect day = took all medications
         if (takenCount >= activeMedsCount) {
           streak++;
         } else {
@@ -194,7 +207,6 @@ export default function HomeScreen() {
 
   const handleTakeMedication = async (medicationId: string) => {
     try {
-      // Optimistically update UI
       setMedicationLogs(prev => ({ 
         ...prev, 
         [medicationId]: { taken: true, skipped: false, status: 'taken' } 
@@ -202,7 +214,6 @@ export default function HomeScreen() {
       
       const today = new Date().toISOString().split('T')[0];
       
-      // Check if log already exists for today
       const { data: existingLog } = await supabase
         .from('medication_logs')
         .select('id')
@@ -212,7 +223,6 @@ export default function HomeScreen() {
         .single();
 
       if (existingLog) {
-        // Update existing log
         const { error } = await supabase
           .from('medication_logs')
           .update({
@@ -223,7 +233,6 @@ export default function HomeScreen() {
 
         if (error) throw error;
       } else {
-        // Insert new log
         const { error } = await supabase
           .from('medication_logs')
           .insert({
@@ -241,7 +250,6 @@ export default function HomeScreen() {
       
     } catch (error) {
       console.error('Error logging medication:', error);
-      // Revert optimistic update on error
       setMedicationLogs(prev => ({ 
         ...prev, 
         [medicationId]: { taken: false, skipped: false, status: null } 
@@ -258,7 +266,6 @@ export default function HomeScreen() {
       
       const today = new Date().toISOString().split('T')[0];
       
-      // Check if log already exists for today
       const { data: existingLog } = await supabase
         .from('medication_logs')
         .select('id')
@@ -268,7 +275,6 @@ export default function HomeScreen() {
         .single();
 
       if (existingLog) {
-        // Update existing log
         const { error } = await supabase
           .from('medication_logs')
           .update({
@@ -279,7 +285,6 @@ export default function HomeScreen() {
 
         if (error) throw error;
       } else {
-        // Insert new log
         const { error } = await supabase
           .from('medication_logs')
           .insert({
@@ -308,6 +313,7 @@ export default function HomeScreen() {
     setRefreshing(true);
     loadTodaysMedications();
     loadStats();
+    loadAICompanionStatus();
   };
 
   return (
@@ -400,6 +406,9 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* AI Chat Head - Only show if enabled */}
+      {aiCompanionEnabled && <AIChatHead userId={CURRENT_USER_ID} />}
     </View>
   );
 }

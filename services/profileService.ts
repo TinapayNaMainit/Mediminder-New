@@ -1,4 +1,4 @@
-// services/profileService.ts
+// services/profileService.ts - Updated with AI companion support
 import { supabase } from './supabaseClient';
 
 export interface UserProfile {
@@ -6,9 +6,10 @@ export interface UserProfile {
   user_id: string;
   display_name: string;
   avatar_url?: string;
-  role?: 'patient' | 'caregiver'; // Added role property
-  role_selected_at?: string; // Added role selection timestamp
-  connection_code?: string; // Added connection code
+  role?: 'patient' | 'caregiver';
+  role_selected_at?: string;
+  connection_code?: string;
+  ai_companion_enabled?: boolean; // Added AI companion field
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +51,7 @@ export const profileService = {
         .insert({
           user_id: userId,
           display_name: randomUsername,
+          ai_companion_enabled: true, // Default to enabled
         })
         .select()
         .single();
@@ -63,7 +65,7 @@ export const profileService = {
   },
 
   // Update profile
-  async updateProfile(updates: Partial<Pick<UserProfile, 'display_name' | 'avatar_url' | 'role'>>): Promise<UserProfile | null> {
+  async updateProfile(updates: Partial<Pick<UserProfile, 'display_name' | 'avatar_url' | 'role' | 'ai_companion_enabled'>>): Promise<UserProfile | null> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) return null;
@@ -95,11 +97,9 @@ export const profileService = {
       const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${session.user.id}/${Date.now()}.${fileExt}`;
       
-      // Read file as ArrayBuffer
       const response = await fetch(uri);
       const arrayBuffer = await response.arrayBuffer();
       
-      // Upload to Supabase Storage
       const { data, error } = await supabase.storage
         .from('avatars')
         .upload(fileName, arrayBuffer, {
@@ -112,7 +112,6 @@ export const profileService = {
         throw error;
       }
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(fileName);

@@ -77,7 +77,7 @@ export default function AuthScreen() {
         } else {
           Alert.alert(
             'Account Created Successfully!',
-            `Welcome to MedReminder!\n\nWe've sent a verification email to:\n${email}\n\nPlease:\n1. Check your email inbox (and spam folder)\n2. Click the verification link\n3. You'll see a success page confirming your account is active\n4. Return here and log in\n\nThe verification link expires in 24 hours.`,
+            `Welcome to Mediminder!\n\nWe've sent a verification email to:\n${email}\n\nPlease:\n1. Check your email inbox (and spam folder)\n2. Click the verification link\n3. You'll see a success page confirming your account is active\n4. Return here and log in\n\nThe verification link expires in 24 hours.`,
             [
               {
                 text: 'Got it!',
@@ -163,7 +163,7 @@ export default function AuthScreen() {
             <View style={styles.logoContainer}>
               <Ionicons name="medical" size={64} color="white" />
             </View>
-            <Text style={styles.appTitle}>MedReminder</Text>
+            <Text style={styles.appTitle}>MediMinder</Text>
             <Text style={styles.appSubtitle}>
               Never miss your medication again
             </Text>

@@ -1,4 +1,4 @@
-// app/(tabs)/profile.tsx
+// app/(tabs)/profile.tsx - Updated with AI Companion Toggle
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -32,6 +32,7 @@ export default function ProfileScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [aiCompanionEnabled, setAiCompanionEnabled] = useState(true);
   const [connections, setConnections] = useState<CaregiverConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -46,6 +47,7 @@ export default function ProfileScreen() {
     if (user?.id && profile?.role) {
       console.log('👤 User role:', profile.role);
       loadConnections();
+      loadAICompanionStatus();
     }
   }, [user?.id, profile?.role]);
 
@@ -55,6 +57,50 @@ export default function ProfileScreen() {
     console.log('📋 Loaded connections:', conns.length);
     setConnections(conns);
     setRefreshing(false);
+  };
+
+  const loadAICompanionStatus = async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('ai_companion_enabled')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) throw error;
+      setAiCompanionEnabled(data?.ai_companion_enabled ?? true);
+    } catch (error) {
+      console.error('Error loading AI companion status:', error);
+    }
+  };
+
+  const handleToggleAICompanion = async (value: boolean) => {
+    if (!user?.id) return;
+
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ 
+          ai_companion_enabled: value,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setAiCompanionEnabled(value);
+      Alert.alert(
+        value ? 'AI Companion Enabled' : 'AI Companion Disabled',
+        value 
+          ? 'MedCompanion will now appear on your home screen to help answer your health questions.'
+          : 'MedCompanion has been hidden from your home screen.'
+      );
+    } catch (error) {
+      console.error('Error toggling AI companion:', error);
+      Alert.alert('Error', 'Failed to update AI companion setting');
+      setAiCompanionEnabled(!value);
+    }
   };
 
   const handleRefresh = () => {
@@ -104,7 +150,6 @@ export default function ProfileScreen() {
             if (!user?.id) return;
             
             try {
-              // Remove all connections first
               const { error: connError } = await supabase
                 .from('caregiver_connections')
                 .update({ status: 'revoked', updated_at: new Date().toISOString() })
@@ -112,7 +157,6 @@ export default function ProfileScreen() {
 
               if (connError) throw connError;
 
-              // Reset role
               const { error: roleError } = await supabase
                 .from('user_profiles')
                 .update({ 
@@ -174,14 +218,6 @@ export default function ProfileScreen() {
   const userRole = profile?.role;
   const isPatient = userRole === 'patient';
   const isCaregiver = userRole === 'caregiver';
-
-  console.log('🔍 Profile Debug:', {
-    userRole,
-    isPatient,
-    isCaregiver,
-    profileId: profile?.id,
-    userId: user?.id
-  });
 
   const SettingItem: React.FC<{
     title: string;
@@ -274,7 +310,21 @@ export default function ProfileScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {/* Connections Section - Only show if role is set */}
+        {/* AI Companion Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>AI Assistant</Text>
+          <View style={styles.settingsGroup}>
+            <SettingItem
+              title="MedCompanion AI"
+              subtitle="Draggable AI chatbot to answer health questions"
+              value={aiCompanionEnabled}
+              onValueChange={handleToggleAICompanion}
+              icon="sparkles"
+            />
+          </View>
+        </View>
+
+        {/* Connections Section */}
         {(isPatient || isCaregiver) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
@@ -285,10 +335,7 @@ export default function ProfileScreen() {
               {isPatient && (
                 <Pressable 
                   style={styles.connectionAction}
-                  onPress={() => {
-                    console.log('📱 Opening QR Generator');
-                    setShowQRGenerator(true);
-                  }}
+                  onPress={() => setShowQRGenerator(true)}
                 >
                   <LinearGradient
                     colors={['#10B981', '#059669']}
@@ -303,10 +350,7 @@ export default function ProfileScreen() {
               {isCaregiver && (
                 <Pressable 
                   style={styles.connectionAction}
-                  onPress={() => {
-                    console.log('📷 Opening QR Scanner');
-                    setShowQRScanner(true);
-                  }}
+                  onPress={() => setShowQRScanner(true)}
                 >
                   <LinearGradient
                     colors={['#6366F1', '#8B5CF6']}
@@ -447,8 +491,8 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>MedReminder v1.0.0</Text>
-          <Text style={styles.footerSubtext}>Patient-Caregiver Connection System</Text>
+          <Text style={styles.footerText}>Mediminder v1.0.9</Text>
+          <Text style={styles.footerSubtext}>With AI Companion by Google Gemini</Text>
         </View>
       </ScrollView>
 
@@ -460,10 +504,7 @@ export default function ProfileScreen() {
       {isPatient && user?.id && (
         <QRCodeGenerator
           visible={showQRGenerator}
-          onClose={() => {
-            console.log('🔒 Closing QR Generator');
-            setShowQRGenerator(false);
-          }}
+          onClose={() => setShowQRGenerator(false)}
           userId={user.id}
         />
       )}
@@ -471,15 +512,9 @@ export default function ProfileScreen() {
       {isCaregiver && user?.id && (
         <QRCodeScanner
           visible={showQRScanner}
-          onClose={() => {
-            console.log('🔒 Closing QR Scanner');
-            setShowQRScanner(false);
-          }}
+          onClose={() => setShowQRScanner(false)}
           userId={user.id}
-          onSuccess={() => {
-            console.log('✅ Connection successful');
-            loadConnections();
-          }}
+          onSuccess={() => loadConnections()}
         />
       )}
     </View>
