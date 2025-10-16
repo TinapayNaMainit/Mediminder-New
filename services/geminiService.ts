@@ -1,10 +1,14 @@
 // services/geminiService.ts
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Replace with your actual Gemini API key
-const GEMINI_API_KEY = 'AIzaSyDRxuVdWkM_bgiq6-fuAPRSNjDAZeMMmVc';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// Add validation
+if (!GEMINI_API_KEY) {
+  console.error('⚠️ GEMINI_API_KEY not found in environment variables');
+}
 
 export interface ChatMessage {
   id: string;
