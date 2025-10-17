@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.23.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "ios": {
+        "buildConfiguration": "Debug"
+      },
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyBnirZNpzVrqtGfc6v4dF_stPJro2Cu-mA"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyBnirZNpzVrqtGfc6v4dF_stPJro2Cu-mA"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyBnirZNpzVrqtGfc6v4dF_stPJro2Cu-mA"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

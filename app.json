@@ -10,11 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.breadtwou.mediminder",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow Mediminder to access your camera to scan QR codes for caregiver connections."
       }
     },
     "android": {
+      "package": "com.breadtwou.mediminder",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -24,7 +26,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
       ]
     },
     "web": {
@@ -48,9 +53,11 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
+          "icon": "./assets/images/icon.png",
           "color": "#6366F1",
-          "sounds": ["./assets/sounds/notification.wav"]
+          "sounds": [
+            "./assets/sounds/notification.wav"
+          ]
         }
       ],
       [
@@ -58,10 +65,11 @@
         {
           "cameraPermission": "Allow Mediminder to access your camera to scan QR codes for connecting with patients and caregivers."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "notification": {
-      "icon": "./assets/images/notification.png",
+      "icon": "./assets/images/icon.png",
       "color": "#6366F1",
       "androidMode": "default",
       "androidCollapsedTitle": "Medication Reminder"
@@ -69,6 +77,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b79b7fd0-839b-485e-9500-0a3f30d24b2d"
+      }
     }
   }
 }
