@@ -21,6 +21,15 @@ interface MedicationStatus {
   status: 'taken' | 'skipped' | 'missed' | null;
 }
 
+// ✅ FIXED: Helper function to get local date string
+const getLocalDateString = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function HomeScreen() {
   const [todaysMedications, setTodaysMedications] = useState<DatabaseMedication[]>([]);
   const [medicationLogs, setMedicationLogs] = useState<{[key: string]: MedicationStatus}>({});
@@ -96,7 +105,10 @@ export default function HomeScreen() {
 
   const loadTodayLogs = async (medications: DatabaseMedication[]) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // ✅ FIXED: Use local date string
+      const today = getLocalDateString();
+      
+      console.log('📋 Loading logs for date:', today);
       
       const { data: logs, error } = await supabase
         .from('medication_logs')
@@ -126,6 +138,7 @@ export default function HomeScreen() {
         }
       });
       
+      console.log('✅ Loaded', logs?.length || 0, 'logs for today');
       setMedicationLogs(logMap);
     } catch (error) {
       console.error('Error loading logs:', error);
@@ -134,7 +147,8 @@ export default function HomeScreen() {
 
   const loadStats = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // ✅ FIXED: Use local date string
+      const today = getLocalDateString();
       
       const { data: logs, error } = await supabase
         .from('medication_logs')
@@ -178,7 +192,11 @@ export default function HomeScreen() {
       let checkDate = new Date();
 
       for (let i = 0; i < 30; i++) {
-        const dateStr = checkDate.toISOString().split('T')[0];
+        // ✅ FIXED: Use local date string helper
+        const year = checkDate.getFullYear();
+        const month = String(checkDate.getMonth() + 1).padStart(2, '0');
+        const day = String(checkDate.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
 
         const { data: logs } = await supabase
           .from('medication_logs')
@@ -212,7 +230,12 @@ export default function HomeScreen() {
         [medicationId]: { taken: true, skipped: false, status: 'taken' } 
       }));
       
-      const today = new Date().toISOString().split('T')[0];
+      // ✅ FIXED: Use local date string
+      const today = getLocalDateString();
+      
+      console.log('💊 Logging medication as taken');
+      console.log('   Date:', today);
+      console.log('   Time:', new Date().toLocaleString());
       
       const { data: existingLog } = await supabase
         .from('medication_logs')
@@ -232,6 +255,7 @@ export default function HomeScreen() {
           .eq('id', existingLog.id);
 
         if (error) throw error;
+        console.log('✅ Updated existing log');
       } else {
         const { error } = await supabase
           .from('medication_logs')
@@ -244,6 +268,7 @@ export default function HomeScreen() {
           });
 
         if (error) throw error;
+        console.log('✅ Created new log');
       }
       
       await loadStats();
@@ -264,7 +289,12 @@ export default function HomeScreen() {
         [medicationId]: { taken: false, skipped: true, status: 'skipped' } 
       }));
       
-      const today = new Date().toISOString().split('T')[0];
+      // ✅ FIXED: Use local date string
+      const today = getLocalDateString();
+      
+      console.log('⏭️ Logging medication as skipped');
+      console.log('   Date:', today);
+      console.log('   Time:', new Date().toLocaleString());
       
       const { data: existingLog } = await supabase
         .from('medication_logs')
@@ -284,6 +314,7 @@ export default function HomeScreen() {
           .eq('id', existingLog.id);
 
         if (error) throw error;
+        console.log('✅ Updated existing log');
       } else {
         const { error } = await supabase
           .from('medication_logs')
@@ -296,6 +327,7 @@ export default function HomeScreen() {
           });
 
         if (error) throw error;
+        console.log('✅ Created new log');
       }
       
       await loadStats();

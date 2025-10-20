@@ -1,25 +1,24 @@
-// services/notificationService.ts - COMPLETE FIX (No Immediate Notifications)
 // @ts-nocheck
+// services/notificationService.ts - FULLY FIXED
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Configure notification behavior - will be called in app initialization
+export function setupNotificationHandler() {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 export interface NotificationSettings {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
   snoozeMinutes: number;
-  escalateAfterMinutes: number;
-  quietHoursStart?: string;
-  quietHoursEnd?: string;
 }
 
 class NotificationService {
@@ -27,7 +26,6 @@ class NotificationService {
     soundEnabled: true,
     vibrationEnabled: true,
     snoozeMinutes: 10,
-    escalateAfterMinutes: 10,
   };
 
   async requestPermissions(): Promise<boolean> {
@@ -45,29 +43,25 @@ class NotificationService {
     }
 
     if (finalStatus !== 'granted') {
+      console.error('❌ Notification permissions denied');
       return false;
     }
 
+    // Set up Android notification channels
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('medication-reminders', {
         name: 'Medication Reminders',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
-        sound: 'default',
+        sound: 'notification.wav',
         lightColor: '#6366F1',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: false,
+        enableLights: true,
+        enableVibrate: true,
       });
 
-      await Notifications.setNotificationChannelAsync('urgent-reminders', {
-        name: 'Urgent Reminders',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 500, 500, 500],
-        sound: 'default',
-        lightColor: '#EF4444',
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        bypassDnd: false,
-      });
+      console.log('✅ Android notification channel created');
     }
 
     console.log('✅ Notification permissions granted');
@@ -76,27 +70,6 @@ class NotificationService {
 
   updateSettings(settings: Partial<NotificationSettings>) {
     this.settings = { ...this.settings, ...settings };
-  }
-
-  isQuietHours(): boolean {
-    if (!this.settings.quietHoursStart || !this.settings.quietHoursEnd) {
-      return false;
-    }
-
-    const now = new Date();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-
-    const [startHour, startMin] = this.settings.quietHoursStart.split(':').map(Number);
-    const [endHour, endMin] = this.settings.quietHoursEnd.split(':').map(Number);
-
-    const startTime = startHour * 60 + startMin;
-    const endTime = endHour * 60 + endMin;
-
-    if (startTime < endTime) {
-      return currentTime >= startTime && currentTime < endTime;
-    } else {
-      return currentTime >= startTime || currentTime < endTime;
-    }
   }
 
   async scheduleMedicationReminder(
@@ -109,27 +82,14 @@ class NotificationService {
     notes?: string
   ): Promise<string | null> {
     try {
-      // 🔥 CRITICAL FIX: Calculate next occurrence properly
-      const now = new Date();
-      const scheduledTime = new Date();
-      scheduledTime.setHours(hour, minute, 0, 0);
-      
-      // If scheduled time already passed today, start from tomorrow
-      if (scheduledTime <= now) {
-        scheduledTime.setDate(scheduledTime.getDate() + 1);
-      }
-      
-      // Calculate seconds until first notification
-      const secondsUntilFirst = Math.floor((scheduledTime.getTime() - now.getTime()) / 1000);
-      
-      console.log('📅 Scheduling notification:');
-      console.log('   Medication:', medicationName);
-      console.log('   Target time:', `${hour}:${minute.toString().padStart(2, '0')}`);
-      console.log('   First notification:', scheduledTime.toLocaleString());
-      console.log('   Seconds until first:', secondsUntilFirst);
-      
-      // 🔥 FIX: Use date-based trigger instead of daily time trigger
-      // This prevents immediate notifications in Expo Go
+      // ✅ CRITICAL: Cancel ALL existing notifications for this medication
+      await this.cancelMedicationNotifications(medicationId);
+
+      console.log(`📅 Scheduling daily notification for ${medicationName}`);
+      console.log(`   Time: ${hour}:${minute.toString().padStart(2, '0')}`);
+
+      // ✅ Schedule ONLY daily repeating notification
+      // This prevents any immediate notifications
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: '💊 Time for your medication',
@@ -142,50 +102,32 @@ class NotificationService {
             type: 'scheduled_reminder',
             notes,
           },
-          sound: this.settings.soundEnabled ? 'default' : undefined,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
+          sound: this.settings.soundEnabled ? 'notification.wav' : undefined,
+          priority: Notifications.AndroidNotificationPriority.MAX,
           badge: 1,
           categoryIdentifier: 'MEDICATION_REMINDER',
         },
         trigger: {
-          // Use specific date for first notification
-          date: scheduledTime,
-          repeats: false, // We'll handle repeating manually
-        },
+          hour: hour,
+          minute: minute,
+          repeats: true,
+        } as Notifications.CalendarTriggerInput,
       });
 
-      // 🔥 Schedule repeating notification starting from tomorrow
-      const tomorrowScheduledTime = new Date(scheduledTime);
-      tomorrowScheduledTime.setDate(tomorrowScheduledTime.getDate() + 1);
-      
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '💊 Time for your medication',
-          body: `${medicationName} - ${dosage}${dosageUnit}`,
-          data: {
-            medicationId,
-            medicationName,
-            dosage,
-            dosageUnit,
-            type: 'scheduled_reminder',
-            notes,
-          },
-          sound: this.settings.soundEnabled ? 'default' : undefined,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
-          badge: 1,
-          categoryIdentifier: 'MEDICATION_REMINDER',
-        },
-        trigger: {
-          hour,
-          minute,
-          repeats: true, // Daily repeating from tomorrow onwards
-        },
-      });
+      console.log(`✅ Notification scheduled successfully`);
+      console.log(`   ID: ${notificationId}`);
+      console.log(`   Will trigger daily at ${hour}:${minute.toString().padStart(2, '0')}`);
 
-      console.log(`✅ Notifications scheduled:`);
-      console.log(`   - First: ${scheduledTime.toLocaleString()}`);
-      console.log(`   - Repeating: Daily at ${hour}:${minute.toString().padStart(2, '0')}`);
+      // Verify it was scheduled
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+      const found = scheduled.find(n => n.identifier === notificationId);
       
+      if (found) {
+        console.log('✅ Verification: Notification confirmed in schedule');
+      } else {
+        console.warn('⚠️ Warning: Notification not found in schedule list');
+      }
+
       return notificationId;
     } catch (error) {
       console.error('❌ Error scheduling notification:', error);
@@ -211,13 +153,13 @@ class NotificationService {
           medicationId,
           type: 'snoozed_reminder',
         },
-        sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        sound: 'notification.wav',
+        priority: Notifications.AndroidNotificationPriority.MAX,
         categoryIdentifier: 'MEDICATION_REMINDER',
       },
       trigger: {
         seconds: snoozeSeconds,
-      },
+      } as Notifications.TimeIntervalTriggerInput,
     });
 
     console.log(`⏰ Medication snoozed for ${this.settings.snoozeMinutes} minutes`);
@@ -239,7 +181,9 @@ class NotificationService {
       await Notifications.cancelScheduledNotificationAsync(notification.identifier);
     }
 
-    console.log(`🗑️ Cancelled ${medicationNotifications.length} notification(s) for medication ${medicationId}`);
+    if (medicationNotifications.length > 0) {
+      console.log(`🗑️ Cancelled ${medicationNotifications.length} notification(s) for medication ${medicationId}`);
+    }
   }
 
   async cancelAllNotifications(): Promise<void> {
@@ -255,10 +199,11 @@ class NotificationService {
     notifications.forEach((notif, index) => {
       const trigger = notif.trigger as any;
       console.log(`   ${index + 1}. ${notif.content.title}`);
-      if (trigger.type === 'date') {
-        console.log(`      Date: ${new Date(trigger.value).toLocaleString()}`);
-      } else if (trigger.type === 'daily') {
-        console.log(`      Daily at: ${trigger.hour}:${trigger.minute}`);
+      if (trigger.type === 'calendar' && trigger.hour !== undefined) {
+        console.log(`      Daily at: ${trigger.hour}:${trigger.minute?.toString().padStart(2, '0') || '00'}`);
+        console.log(`      Repeats: ${trigger.repeats ? 'Yes' : 'No'}`);
+      } else if (trigger.type === 'timeInterval') {
+        console.log(`      In ${trigger.seconds} seconds`);
       }
     });
     
@@ -291,23 +236,6 @@ class NotificationService {
       },
     ]);
 
-    await Notifications.setNotificationCategoryAsync('URGENT_REMINDER', [
-      {
-        identifier: 'TAKE_NOW',
-        buttonTitle: '✅ Take Now',
-        options: {
-          opensAppToForeground: true,
-        },
-      },
-      {
-        identifier: 'DISMISS',
-        buttonTitle: 'Dismiss',
-        options: {
-          opensAppToForeground: false,
-        },
-      },
-    ]);
-
     console.log('✅ Notification categories set up');
   }
 
@@ -318,7 +246,7 @@ class NotificationService {
   ): void {
     Notifications.addNotificationResponseReceivedListener((response) => {
       const { actionIdentifier, notification } = response;
-      const medicationId = notification.request.content.data?.medicationId;
+      const medicationId = notification.request.content.data?.medicationId as string;
 
       if (!medicationId) return;
 
@@ -341,6 +269,53 @@ class NotificationService {
 
 export const notificationService = new NotificationService();
 
+export { setupNotificationHandler };
+
 export const formatTimeForNotification = (hour: number, minute: number): string => {
   return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+};
+
+// ✅ TEST FUNCTION - Schedule notification in 1 minute
+export const testNotificationIn1Minute = async () => {
+  console.log('🧪 Testing notification in 1 minute...');
+  
+  const now = new Date();
+  const testTime = new Date(now.getTime() + 60 * 1000); // 1 minute from now
+  
+  const testId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '🧪 Test Notification',
+      body: 'If you see this, notifications work! Close the app now.',
+      sound: 'notification.wav',
+      priority: Notifications.AndroidNotificationPriority.MAX,
+    },
+    trigger: {
+      hour: testTime.getHours(),
+      minute: testTime.getMinutes(),
+      repeats: false,
+    } as Notifications.CalendarTriggerInput,
+  });
+  
+  console.log('✅ Test notification scheduled for:', testTime.toLocaleTimeString());
+  return testId;
+};
+
+// ✅ TEST FUNCTION - Schedule notification in 30 seconds
+export const testNotificationIn30Seconds = async () => {
+  console.log('🧪 Testing notification in 30 seconds...');
+  
+  const testId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '🧪 Quick Test',
+      body: 'Notifications are working! Close app now.',
+      sound: 'notification.wav',
+      priority: Notifications.AndroidNotificationPriority.MAX,
+    },
+    trigger: {
+      seconds: 30,
+    } as Notifications.TimeIntervalTriggerInput,
+  });
+  
+  console.log('✅ Test notification scheduled in 30 seconds');
+  return testId;
 };
