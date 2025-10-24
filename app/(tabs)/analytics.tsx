@@ -1,372 +1,521 @@
-// @ts-nocheck
-// services/analyticsService.ts - FIXED DATE ISSUES
-import { supabase } from '../../services/supabaseClient';
+// app/(tabs)/analytics.tsx - FIXED ANALYTICS SCREEN
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
+import { analyticsService, AdherenceStats, MedicationStats, TimeAnalytics, WeeklyPattern } from '../../services/analyticsService';
 
-export interface AdherenceStats {
-  daily: number;
-  weekly: number;
-  monthly: number;
-  allTime: number;
+export default function AnalyticsScreen() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [adherenceStats, setAdherenceStats] = useState<AdherenceStats | null>(null);
+  const [medicationStats, setMedicationStats] = useState<MedicationStats | null>(null);
+  const [timeAnalytics, setTimeAnalytics] = useState<TimeAnalytics | null>(null);
+  const [weeklyPattern, setWeeklyPattern] = useState<WeeklyPattern[]>([]);
+  const [insights, setInsights] = useState<string[]>([]);
+
+  const CURRENT_USER_ID = user?.id;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (CURRENT_USER_ID) {
+        loadAnalytics();
+      }
+    }, [CURRENT_USER_ID])
+  );
+
+  const loadAnalytics = async () => {
+    if (!CURRENT_USER_ID) return;
+
+    try {
+      setLoading(true);
+
+      // Load all analytics data
+      const [adherence, medStats, timeData, pattern, userInsights] = await Promise.all([
+        analyticsService.getAdherenceStats(CURRENT_USER_ID),
+        analyticsService.getMedicationStats(CURRENT_USER_ID),
+        analyticsService.getTimeAnalytics(CURRENT_USER_ID),
+        analyticsService.getWeeklyPattern(CURRENT_USER_ID),
+        analyticsService.getInsights(CURRENT_USER_ID),
+      ]);
+
+      setAdherenceStats(adherence);
+      setMedicationStats(medStats);
+      setTimeAnalytics(timeData);
+      setWeeklyPattern(pattern);
+      setInsights(userInsights);
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadAnalytics();
+  };
+
+  if (!CURRENT_USER_ID) return null;
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <LinearGradient colors={['#667EEA', '#764BA2']} style={styles.loadingGradient}>
+          <ActivityIndicator size="large" color="white" />
+          <Text style={styles.loadingText}>Loading Analytics...</Text>
+        </LinearGradient>
+      </View>
+    );
+  }
+
+  const getAdherenceColor = (rate: number): string => {
+    if (rate >= 90) return '#10B981';
+    if (rate >= 70) return '#F59E0B';
+    return '#EF4444';
+  };
+
+  return (
+    <View style={styles.container}>
+      <LinearGradient colors={['#667EEA', '#764BA2']} style={styles.header}>
+        <Text style={styles.headerTitle}>Analytics</Text>
+        <Text style={styles.headerSubtitle}>Track your medication adherence</Text>
+      </LinearGradient>
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Adherence Overview */}
+        {adherenceStats && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Adherence Overview</Text>
+            <View style={styles.statsGrid}>
+              <View style={[styles.statCard, { backgroundColor: getAdherenceColor(adherenceStats.daily) }]}>
+                <Text style={styles.statNumber}>{adherenceStats.daily}%</Text>
+                <Text style={styles.statLabel}>Today</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: getAdherenceColor(adherenceStats.weekly) }]}>
+                <Text style={styles.statNumber}>{adherenceStats.weekly}%</Text>
+                <Text style={styles.statLabel}>This Week</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: getAdherenceColor(adherenceStats.monthly) }]}>
+                <Text style={styles.statNumber}>{adherenceStats.monthly}%</Text>
+                <Text style={styles.statLabel}>This Month</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: getAdherenceColor(adherenceStats.allTime) }]}>
+                <Text style={styles.statNumber}>{adherenceStats.allTime}%</Text>
+                <Text style={styles.statLabel}>All Time</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Medication Stats */}
+        {medicationStats && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Medication Statistics</Text>
+            <View style={styles.card}>
+              <View style={styles.statRow}>
+                <View style={styles.statItem}>
+                  <Ionicons name="medical" size={24} color="#6366F1" />
+                  <Text style={styles.statValue}>{medicationStats.totalMedications}</Text>
+                  <Text style={styles.statItemLabel}>Total Meds</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+                  <Text style={styles.statValue}>{medicationStats.totalDoses}</Text>
+                  <Text style={styles.statItemLabel}>Doses Taken</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="flame" size={24} color="#F59E0B" />
+                  <Text style={styles.statValue}>{medicationStats.streakDays}</Text>
+                  <Text style={styles.statItemLabel}>Day Streak</Text>
+                </View>
+              </View>
+              <View style={styles.statRow}>
+                <View style={styles.statItem}>
+                  <Ionicons name="star" size={24} color="#8B5CF6" />
+                  <Text style={styles.statValue}>{medicationStats.perfectDays}</Text>
+                  <Text style={styles.statItemLabel}>Perfect Days</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="close-circle" size={24} color="#EF4444" />
+                  <Text style={styles.statValue}>{medicationStats.missedDoses}</Text>
+                  <Text style={styles.statItemLabel}>Missed</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="pulse" size={24} color="#10B981" />
+                  <Text style={styles.statValue}>{medicationStats.activeMedications}</Text>
+                  <Text style={styles.statItemLabel}>Active</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Weekly Pattern */}
+        {weeklyPattern.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Weekly Pattern</Text>
+            <View style={styles.card}>
+              <View style={styles.chartContainer}>
+                {weeklyPattern.map((day, index) => {
+                  const total = day.taken + day.missed + day.skipped;
+                  const takenPercent = total > 0 ? (day.taken / total) * 100 : 0;
+                  
+                  return (
+                    <View key={index} style={styles.barContainer}>
+                      <View style={styles.bar}>
+                        <View 
+                          style={[
+                            styles.barFill, 
+                            { 
+                              height: `${takenPercent}%`,
+                              backgroundColor: takenPercent >= 80 ? '#10B981' : takenPercent >= 50 ? '#F59E0B' : '#EF4444'
+                            }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={styles.barLabel}>{day.day}</Text>
+                      <Text style={styles.barValue}>{day.taken}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.legend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                  <Text style={styles.legendText}>Taken</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
+                  <Text style={styles.legendText}>Missed</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
+                  <Text style={styles.legendText}>Skipped</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Time of Day Analytics */}
+        {timeAnalytics && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Time of Day Compliance</Text>
+            <View style={styles.card}>
+              <View style={styles.timeRow}>
+                <Ionicons name="sunny" size={24} color="#F59E0B" />
+                <Text style={styles.timeLabel}>Morning</Text>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { 
+                        width: `${timeAnalytics.morningCompliance}%`,
+                        backgroundColor: getAdherenceColor(timeAnalytics.morningCompliance)
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.timeValue}>{timeAnalytics.morningCompliance}%</Text>
+              </View>
+              <View style={styles.timeRow}>
+                <Ionicons name="partly-sunny" size={24} color="#EAB308" />
+                <Text style={styles.timeLabel}>Afternoon</Text>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { 
+                        width: `${timeAnalytics.afternoonCompliance}%`,
+                        backgroundColor: getAdherenceColor(timeAnalytics.afternoonCompliance)
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.timeValue}>{timeAnalytics.afternoonCompliance}%</Text>
+              </View>
+              <View style={styles.timeRow}>
+                <Ionicons name="moon" size={24} color="#6366F1" />
+                <Text style={styles.timeLabel}>Evening</Text>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { 
+                        width: `${timeAnalytics.eveningCompliance}%`,
+                        backgroundColor: getAdherenceColor(timeAnalytics.eveningCompliance)
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.timeValue}>{timeAnalytics.eveningCompliance}%</Text>
+              </View>
+              <View style={styles.timeRow}>
+                <Ionicons name="moon-outline" size={24} color="#8B5CF6" />
+                <Text style={styles.timeLabel}>Night</Text>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { 
+                        width: `${timeAnalytics.nightCompliance}%`,
+                        backgroundColor: getAdherenceColor(timeAnalytics.nightCompliance)
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.timeValue}>{timeAnalytics.nightCompliance}%</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Insights */}
+        {insights.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Insights & Recommendations</Text>
+            {insights.map((insight, index) => (
+              <View key={index} style={styles.insightCard}>
+                <Ionicons name="bulb" size={24} color="#F59E0B" />
+                <Text style={styles.insightText}>{insight}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    </View>
+  );
 }
 
-export interface MedicationStats {
-  totalMedications: number;
-  activeMedications: number;
-  totalDoses: number;
-  missedDoses: number;
-  streakDays: number;
-  perfectDays: number;
-}
-
-export interface TimeAnalytics {
-  morningCompliance: number;
-  afternoonCompliance: number;
-  eveningCompliance: number;
-  nightCompliance: number;
-}
-
-export interface WeeklyPattern {
-  day: string;
-  taken: number;
-  missed: number;
-  skipped: number;
-}
-
-// ✅ FIXED: Get local date string without timezone issues
-const getLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-// ✅ FIXED: Get date N days ago in local timezone
-const getDaysAgo = (days: number): string => {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return getLocalDateString(date);
-};
-
-export const analyticsService = {
-  // Calculate adherence rate for a period
-  async getAdherenceRate(userId: string, days: number): Promise<number> {
-    try {
-      const startDate = getDaysAgo(days);
-      const today = getLocalDateString(new Date());
-
-      console.log(`📊 Calculating adherence for ${days} days: ${startDate} to ${today}`);
-
-      // Get active medications count
-      const { data: medications } = await supabase
-        .from('medications')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      const totalExpected = (medications?.length || 0) * days;
-      if (totalExpected === 0) return 0;
-
-      // Get actual taken logs
-      const { data: logs, error } = await supabase
-        .from('medication_logs')
-        .select('status, log_date')
-        .eq('user_id', userId)
-        .eq('status', 'taken')
-        .gte('log_date', startDate)
-        .lte('log_date', today);
-
-      if (error) {
-        console.error('Error fetching logs:', error);
-        return 0;
-      }
-
-      const taken = logs?.length || 0;
-      console.log(`   Expected: ${totalExpected}, Taken: ${taken}`);
-      
-      return Math.round((taken / totalExpected) * 100);
-    } catch (error) {
-      console.error('Error calculating adherence:', error);
-      return 0;
-    }
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
   },
-
-  // Get comprehensive adherence stats
-  async getAdherenceStats(userId: string): Promise<AdherenceStats> {
-    const daily = await this.getAdherenceRate(userId, 1);
-    const weekly = await this.getAdherenceRate(userId, 7);
-    const monthly = await this.getAdherenceRate(userId, 30);
-    const allTime = await this.getAdherenceRate(userId, 365);
-
-    return { daily, weekly, monthly, allTime };
+  loadingContainer: {
+    flex: 1,
   },
-
-  // Calculate current streak
-  async getCurrentStreak(userId: string): Promise<number> {
-    try {
-      // Get active medications count
-      const { data: medications } = await supabase
-        .from('medications')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      const activeMedsCount = medications?.length || 0;
-      if (activeMedsCount === 0) return 0;
-
-      let streak = 0;
-      let checkDate = new Date();
-
-      // Check backwards from today
-      for (let i = 0; i < 365; i++) {
-        const dateStr = getLocalDateString(checkDate);
-
-        const { data: logs } = await supabase
-          .from('medication_logs')
-          .select('status')
-          .eq('user_id', userId)
-          .eq('log_date', dateStr)
-          .eq('status', 'taken');
-
-        const takenCount = logs?.length || 0;
-        
-        // Perfect day = took all medications
-        if (takenCount >= activeMedsCount) {
-          streak++;
-        } else {
-          break;
-        }
-
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-
-      return streak;
-    } catch (error) {
-      console.error('Error calculating streak:', error);
-      return 0;
-    }
+  loadingGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Get medication statistics
-  async getMedicationStats(userId: string): Promise<MedicationStats> {
-    try {
-      const { data: allMeds } = await supabase
-        .from('medications')
-        .select('id, is_active')
-        .eq('user_id', userId);
-
-      const { data: logs } = await supabase
-        .from('medication_logs')
-        .select('status, log_date')
-        .eq('user_id', userId);
-
-      const totalMedications = allMeds?.length || 0;
-      const activeMedications = allMeds?.filter(m => m.is_active).length || 0;
-      const totalDoses = logs?.filter(l => l.status === 'taken').length || 0;
-      const missedDoses = logs?.filter(l => l.status === 'missed').length || 0;
-      const streakDays = await this.getCurrentStreak(userId);
-      
-      // Calculate perfect days (all medications taken on same date)
-      const dateGroups = new Map<string, number>();
-      logs?.forEach(log => {
-        if (log.status === 'taken') {
-          const count = dateGroups.get(log.log_date) || 0;
-          dateGroups.set(log.log_date, count + 1);
-        }
-      });
-
-      let perfectDays = 0;
-      dateGroups.forEach(count => {
-        if (count >= activeMedications) {
-          perfectDays++;
-        }
-      });
-
-      return {
-        totalMedications,
-        activeMedications,
-        totalDoses,
-        missedDoses,
-        streakDays,
-        perfectDays,
-      };
-    } catch (error) {
-      console.error('Error getting medication stats:', error);
-      return {
-        totalMedications: 0,
-        activeMedications: 0,
-        totalDoses: 0,
-        missedDoses: 0,
-        streakDays: 0,
-        perfectDays: 0,
-      };
-    }
+  loadingText: {
+    fontSize: 16,
+    color: 'white',
+    marginTop: 16,
+    fontWeight: '600',
   },
-
-  // Get time-of-day analytics
-  async getTimeAnalytics(userId: string): Promise<TimeAnalytics> {
-    try {
-      const { data: medications } = await supabase
-        .from('medications')
-        .select('id, reminder_time')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      if (!medications) {
-        return { morningCompliance: 0, afternoonCompliance: 0, eveningCompliance: 0, nightCompliance: 0 };
-      }
-
-      // Categorize medications by time
-      const timeCategories = {
-        morning: medications.filter(m => {
-          const hour = parseInt(m.reminder_time.split(':')[0]);
-          return hour >= 6 && hour < 12;
-        }),
-        afternoon: medications.filter(m => {
-          const hour = parseInt(m.reminder_time.split(':')[0]);
-          return hour >= 12 && hour < 17;
-        }),
-        evening: medications.filter(m => {
-          const hour = parseInt(m.reminder_time.split(':')[0]);
-          return hour >= 17 && hour < 21;
-        }),
-        night: medications.filter(m => {
-          const hour = parseInt(m.reminder_time.split(':')[0]);
-          return hour >= 21 || hour < 6;
-        }),
-      };
-
-      const calculateCompliance = async (medIds: string[]) => {
-        if (medIds.length === 0) return 0;
-
-        const thirtyDaysAgo = getDaysAgo(30);
-
-        const { data: logs } = await supabase
-          .from('medication_logs')
-          .select('status')
-          .in('medication_id', medIds)
-          .eq('user_id', userId)
-          .gte('log_date', thirtyDaysAgo);
-
-        const taken = logs?.filter(l => l.status === 'taken').length || 0;
-        const total = logs?.length || 0;
-        return total > 0 ? Math.round((taken / total) * 100) : 0;
-      };
-
-      const morningCompliance = await calculateCompliance(timeCategories.morning.map(m => m.id));
-      const afternoonCompliance = await calculateCompliance(timeCategories.afternoon.map(m => m.id));
-      const eveningCompliance = await calculateCompliance(timeCategories.evening.map(m => m.id));
-      const nightCompliance = await calculateCompliance(timeCategories.night.map(m => m.id));
-
-      return { morningCompliance, afternoonCompliance, eveningCompliance, nightCompliance };
-    } catch (error) {
-      console.error('Error getting time analytics:', error);
-      return { morningCompliance: 0, afternoonCompliance: 0, eveningCompliance: 0, nightCompliance: 0 };
-    }
+  header: {
+    paddingTop: 50,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
   },
-
-  // ✅ FIXED: Get weekly pattern with proper date handling
-  async getWeeklyPattern(userId: string): Promise<WeeklyPattern[]> {
-    try {
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const pattern: WeeklyPattern[] = [];
-
-      // Get today's day of week (0 = Sunday)
-      const today = new Date();
-      const todayDayOfWeek = today.getDay();
-
-      // Start from last Sunday (or today if it's Sunday)
-      const startDate = new Date(today);
-      startDate.setDate(today.getDate() - todayDayOfWeek);
-
-      console.log('📊 Getting weekly pattern starting from:', getLocalDateString(startDate));
-
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(startDate);
-        date.setDate(startDate.getDate() + i);
-        const dateStr = getLocalDateString(date);
-        const dayName = days[date.getDay()];
-
-        console.log(`   Checking ${dayName} (${dateStr})`);
-
-        const { data: logs } = await supabase
-          .from('medication_logs')
-          .select('status')
-          .eq('user_id', userId)
-          .eq('log_date', dateStr);
-
-        const taken = logs?.filter(l => l.status === 'taken').length || 0;
-        const missed = logs?.filter(l => l.status === 'missed').length || 0;
-        const skipped = logs?.filter(l => l.status === 'skipped').length || 0;
-
-        console.log(`      Taken: ${taken}, Missed: ${missed}, Skipped: ${skipped}`);
-
-        pattern.push({
-          day: dayName,
-          taken,
-          missed,
-          skipped,
-        });
-      }
-
-      return pattern;
-    } catch (error) {
-      console.error('Error getting weekly pattern:', error);
-      return [];
-    }
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: 'white',
   },
-
-  // Get insights and recommendations
-  async getInsights(userId: string): Promise<string[]> {
-    const insights: string[] = [];
-
-    try {
-      const stats = await this.getMedicationStats(userId);
-      const adherenceStats = await this.getAdherenceStats(userId);
-      const timeAnalytics = await this.getTimeAnalytics(userId);
-
-      // Streak insights
-      if (stats.streakDays >= 7) {
-        insights.push(`Excellent! You're on a ${stats.streakDays}-day streak. Keep it up!`);
-      } else if (stats.streakDays >= 3) {
-        insights.push(`Good job! ${stats.streakDays} days in a row. You're building a healthy habit.`);
-      }
-
-      // Adherence insights
-      if (adherenceStats.weekly >= 90) {
-        insights.push('Outstanding weekly adherence! You\'re taking great care of your health.');
-      } else if (adherenceStats.weekly < 70) {
-        insights.push('Your adherence has dropped this week. Consider setting more reminders.');
-      }
-
-      // Time-based insights
-      const timeRates = [
-        { name: 'morning', rate: timeAnalytics.morningCompliance },
-        { name: 'afternoon', rate: timeAnalytics.afternoonCompliance },
-        { name: 'evening', rate: timeAnalytics.eveningCompliance },
-        { name: 'night', rate: timeAnalytics.nightCompliance },
-      ].filter(t => t.rate > 0);
-
-      if (timeRates.length > 0) {
-        const lowest = timeRates.reduce((prev, curr) => prev.rate < curr.rate ? prev : curr);
-        if (lowest.rate < 70) {
-          insights.push(`You tend to miss ${lowest.name} medications more often. Try setting extra reminders.`);
-        }
-      }
-
-      // Perfect days insight
-      if (stats.perfectDays >= 20) {
-        insights.push(`Amazing! You've had ${stats.perfectDays} perfect days of taking all your medications.`);
-      }
-
-      // No insights case
-      if (insights.length === 0) {
-        insights.push('Keep tracking your medications to see personalized insights here!');
-      }
-
-      return insights;
-    } catch (error) {
-      console.error('Error generating insights:', error);
-      return ['Unable to generate insights at this time.'];
-    }
+  headerSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 4,
   },
-};
+  content: {
+    flex: 1,
+  },
+  section: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statNumber: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: 'white',
+  },
+  statLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 8,
+  },
+  statItemLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  chartContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    height: 200,
+    marginBottom: 16,
+  },
+  barContainer: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  bar: {
+    width: 30,
+    height: 150,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  barValue: {
+    fontSize: 10,
+    color: '#9CA3AF',
+  },
+  legend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  legendText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  timeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    width: 80,
+  },
+  progressBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  timeValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2937',
+    width: 45,
+    textAlign: 'right',
+  },
+  insightCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  insightText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+});

@@ -1,3 +1,4 @@
+// services/analyticsService.ts - COMPLETELY FIXED with proper date handling
 import { supabase } from './supabaseClient';
 
 export interface AdherenceStats {
@@ -30,12 +31,39 @@ export interface WeeklyPattern {
   skipped: number;
 }
 
+// ✅ FIXED: Get local date string in YYYY-MM-DD format
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// ✅ FIXED: Get date N days ago
+const getDaysAgo = (days: number): string => {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return getLocalDateString(date);
+};
+
+// ✅ FIXED: Get start of week (Sunday)
+const getStartOfWeek = (): Date => {
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 = Sunday
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - dayOfWeek);
+  startOfWeek.setHours(0, 0, 0, 0);
+  return startOfWeek;
+};
+
 export const analyticsService = {
   // Calculate adherence rate for a period
   async getAdherenceRate(userId: string, days: number): Promise<number> {
     try {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
+      const startDate = getDaysAgo(days);
+      const today = getLocalDateString();
+
+      console.log(`📊 Calculating adherence for ${days} days: ${startDate} to ${today}`);
 
       // Get active medications count
       const { data: medications } = await supabase
@@ -48,15 +76,23 @@ export const analyticsService = {
       if (totalExpected === 0) return 0;
 
       // Get actual taken logs
-      const { data: logs } = await supabase
+      const { data: logs, error } = await supabase
         .from('medication_logs')
-        .select('status')
+        .select('status, log_date')
         .eq('user_id', userId)
         .eq('status', 'taken')
-        .gte('log_date', startDate.toISOString().split('T')[0]);
+        .gte('log_date', startDate)
+        .lte('log_date', today);
+
+      if (error) {
+        console.error('Error fetching logs:', error);
+        return 0;
+      }
 
       const taken = logs?.length || 0;
-      return Math.round((taken / totalExpected) * 100);
+      console.log(`   Expected: ${totalExpected}, Taken: ${taken}`);
+      
+      return totalExpected > 0 ? Math.round((taken / totalExpected) * 100) : 0;
     } catch (error) {
       console.error('Error calculating adherence:', error);
       return 0;
@@ -65,10 +101,12 @@ export const analyticsService = {
 
   // Get comprehensive adherence stats
   async getAdherenceStats(userId: string): Promise<AdherenceStats> {
-    const daily = await this.getAdherenceRate(userId, 1);
-    const weekly = await this.getAdherenceRate(userId, 7);
-    const monthly = await this.getAdherenceRate(userId, 30);
-    const allTime = await this.getAdherenceRate(userId, 365);
+    const [daily, weekly, monthly, allTime] = await Promise.all([
+      this.getAdherenceRate(userId, 1),
+      this.getAdherenceRate(userId, 7),
+      this.getAdherenceRate(userId, 30),
+      this.getAdherenceRate(userId, 365)
+    ]);
 
     return { daily, weekly, monthly, allTime };
   },
@@ -91,7 +129,7 @@ export const analyticsService = {
 
       // Check backwards from today
       for (let i = 0; i < 365; i++) {
-        const dateStr = checkDate.toISOString().split('T')[0];
+        const dateStr = getLocalDateString(checkDate);
 
         const { data: logs } = await supabase
           .from('medication_logs')
@@ -129,7 +167,7 @@ export const analyticsService = {
 
       const { data: logs } = await supabase
         .from('medication_logs')
-        .select('status')
+        .select('status, log_date')
         .eq('user_id', userId);
 
       const totalMedications = allMeds?.length || 0;
@@ -138,15 +176,21 @@ export const analyticsService = {
       const missedDoses = logs?.filter(l => l.status === 'missed').length || 0;
       const streakDays = await this.getCurrentStreak(userId);
       
-      // Calculate perfect days (all medications taken)
-      const { data: perfectDaysData } = await supabase
-        .from('medication_logs')
-        .select('log_date')
-        .eq('user_id', userId)
-        .eq('status', 'taken');
+      // Calculate perfect days (all medications taken on same date)
+      const dateGroups = new Map<string, number>();
+      logs?.forEach(log => {
+        if (log.status === 'taken') {
+          const count = dateGroups.get(log.log_date) || 0;
+          dateGroups.set(log.log_date, count + 1);
+        }
+      });
 
-      const daysWithLogs = new Set(perfectDaysData?.map(log => log.log_date));
-      const perfectDays = daysWithLogs.size;
+      let perfectDays = 0;
+      dateGroups.forEach(count => {
+        if (count >= activeMedications && activeMedications > 0) {
+          perfectDays++;
+        }
+      });
 
       return {
         totalMedications,
@@ -178,8 +222,13 @@ export const analyticsService = {
         .eq('user_id', userId)
         .eq('is_active', true);
 
-      if (!medications) {
-        return { morningCompliance: 0, afternoonCompliance: 0, eveningCompliance: 0, nightCompliance: 0 };
+      if (!medications || medications.length === 0) {
+        return { 
+          morningCompliance: 0, 
+          afternoonCompliance: 0, 
+          eveningCompliance: 0, 
+          nightCompliance: 0 
+        };
       }
 
       // Categorize medications by time
@@ -202,43 +251,66 @@ export const analyticsService = {
         }),
       };
 
-      const calculateCompliance = async (medIds: string[]) => {
-        if (medIds.length === 0) return 0;
+      const calculateCompliance = async (meds: any[]) => {
+        if (meds.length === 0) return 0;
+
+        const medIds = meds.map(m => m.id);
+        const thirtyDaysAgo = getDaysAgo(30);
 
         const { data: logs } = await supabase
           .from('medication_logs')
           .select('status')
           .in('medication_id', medIds)
           .eq('user_id', userId)
-          .gte('log_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+          .gte('log_date', thirtyDaysAgo);
 
         const taken = logs?.filter(l => l.status === 'taken').length || 0;
         const total = logs?.length || 0;
         return total > 0 ? Math.round((taken / total) * 100) : 0;
       };
 
-      const morningCompliance = await calculateCompliance(timeCategories.morning.map(m => m.id));
-      const afternoonCompliance = await calculateCompliance(timeCategories.afternoon.map(m => m.id));
-      const eveningCompliance = await calculateCompliance(timeCategories.evening.map(m => m.id));
-      const nightCompliance = await calculateCompliance(timeCategories.night.map(m => m.id));
+      const [morning, afternoon, evening, night] = await Promise.all([
+        calculateCompliance(timeCategories.morning),
+        calculateCompliance(timeCategories.afternoon),
+        calculateCompliance(timeCategories.evening),
+        calculateCompliance(timeCategories.night)
+      ]);
 
-      return { morningCompliance, afternoonCompliance, eveningCompliance, nightCompliance };
+      return {
+        morningCompliance: morning,
+        afternoonCompliance: afternoon,
+        eveningCompliance: evening,
+        nightCompliance: night
+      };
     } catch (error) {
       console.error('Error getting time analytics:', error);
-      return { morningCompliance: 0, afternoonCompliance: 0, eveningCompliance: 0, nightCompliance: 0 };
+      return { 
+        morningCompliance: 0, 
+        afternoonCompliance: 0, 
+        eveningCompliance: 0, 
+        nightCompliance: 0 
+      };
     }
   },
 
-  // Get weekly pattern
+  // ✅ FIXED: Get weekly pattern starting from Sunday
   async getWeeklyPattern(userId: string): Promise<WeeklyPattern[]> {
     try {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       const pattern: WeeklyPattern[] = [];
 
+      // Start from last Sunday
+      const startOfWeek = getStartOfWeek();
+
+      console.log('📊 Getting weekly pattern starting from:', getLocalDateString(startOfWeek));
+
       for (let i = 0; i < 7; i++) {
-        const date = new Date();
-        date.setDate(date.getDate() - (6 - i));
-        const dateStr = date.toISOString().split('T')[0];
+        const date = new Date(startOfWeek);
+        date.setDate(startOfWeek.getDate() + i);
+        const dateStr = getLocalDateString(date);
+        const dayName = days[date.getDay()];
+
+        console.log(`   Checking ${dayName} (${dateStr})`);
 
         const { data: logs } = await supabase
           .from('medication_logs')
@@ -250,8 +322,10 @@ export const analyticsService = {
         const missed = logs?.filter(l => l.status === 'missed').length || 0;
         const skipped = logs?.filter(l => l.status === 'skipped').length || 0;
 
+        console.log(`      ${dayName}: Taken: ${taken}, Missed: ${missed}, Skipped: ${skipped}`);
+
         pattern.push({
-          day: days[i],
+          day: dayName,
           taken,
           missed,
           skipped,
