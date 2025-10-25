@@ -34,7 +34,9 @@
         "CAMERA",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
-        "android.permission.USE_EXACT_ALARM"
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -86,8 +88,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b79b7fd0-839b-485e-9500-0a3f30d24b2d"
+        "projectId": "c21fd7ae-7aca-44ba-89ba-8547c22de583"
       }
-    }
+    },
+    "owner": "breadforu"
   }
 }

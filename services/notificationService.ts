@@ -108,9 +108,9 @@ class NotificationService {
         categoryIdentifier: 'MEDICATION_REMINDER',
       };
 
+      // Use DAILY trigger for Android compatibility
       const trigger: Notifications.NotificationTriggerInput = {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
-        repeats: true,
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour,
         minute,
       };
