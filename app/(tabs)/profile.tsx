@@ -1,4 +1,4 @@
-// app/(tabs)/profile.tsx - Updated with AI Companion Toggle
+// app/(tabs)/profile.tsx - PRODUCTION READY
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -45,7 +45,6 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (user?.id && profile?.role) {
-      console.log('👤 User role:', profile.role);
       loadConnections();
       loadAICompanionStatus();
     }
@@ -54,7 +53,6 @@ export default function ProfileScreen() {
   const loadConnections = async () => {
     if (!user?.id) return;
     const conns = await caregiverService.getConnections(user.id);
-    console.log('📋 Loaded connections:', conns.length);
     setConnections(conns);
     setRefreshing(false);
   };
@@ -71,7 +69,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       setAiCompanionEnabled(data?.ai_companion_enabled ?? true);
     } catch (error) {
-      console.error('Error loading AI companion status:', error);
+      // Silent fail
     }
   };
 
@@ -97,7 +95,6 @@ export default function ProfileScreen() {
           : 'MedCompanion has been hidden from your home screen.'
       );
     } catch (error) {
-      console.error('Error toggling AI companion:', error);
       Alert.alert('Error', 'Failed to update AI companion setting');
       setAiCompanionEnabled(!value);
     }
@@ -182,7 +179,6 @@ export default function ProfileScreen() {
                 ]
               );
             } catch (error) {
-              console.error('Error changing role:', error);
               Alert.alert('Error', 'Failed to change role. Please try again.');
             }
           },
@@ -204,7 +200,7 @@ export default function ProfileScreen() {
             try {
               await signOut();
             } catch (error) {
-              console.error('Error signing out:', error);
+              // Silent fail
             }
           },
         },

@@ -1,3 +1,4 @@
+// app/_layout.tsx - FIXED: Removed auto-notification on app start
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -40,8 +41,8 @@ export default function RootLayout() {
     if (loaded) {
       SplashScreen.hideAsync();
       initializeNotifications();
-      // ✅ FIXED: No auto-rescheduling on app start
-      // Notifications are already scheduled when medications are added/edited
+      // ✅ REMOVED: No auto-rescheduling
+      // Notifications are ONLY scheduled when medications are added/edited
     }
   }, [loaded]);
 
@@ -49,26 +50,21 @@ export default function RootLayout() {
     try {
       console.log('🔔 Initializing notification system...');
       
-      // Request notification permissions
-      const granted = await notificationService.requestPermissions();
+      // ✅ Just set up the system, don't request permissions yet
+      // Permissions will be requested when user adds medication
       
-      if (granted) {
-        console.log('✅ Notification permissions granted');
-        
-        // Set up notification categories (action buttons)
-        await notificationService.setupNotificationCategories();
-        console.log('✅ Notification categories set up');
-        
-        // Set up notification response handlers
-        notificationService.setupNotificationResponseHandler(
-          handleTakeMedication,
-          handleSnoozeMedication,
-          handleSkipMedication
-        );
-        console.log('✅ Notification response handlers set up');
-      } else {
-        console.warn('⚠️ Notification permissions denied');
-      }
+      // Set up notification categories (action buttons)
+      await notificationService.setupNotificationCategories();
+      console.log('✅ Notification categories set up');
+      
+      // Set up notification response handlers
+      notificationService.setupNotificationResponseHandler(
+        handleTakeMedication,
+        handleSnoozeMedication,
+        handleSkipMedication
+      );
+      console.log('✅ Notification response handlers set up');
+      
     } catch (error) {
       console.error('❌ Error initializing notifications:', error);
     }
