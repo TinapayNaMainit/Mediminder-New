@@ -1,3 +1,4 @@
+// app/(tabs)/cabinet.tsx - FIXED: Enable Tracking Button
 // @ts-nocheck 
 import React, { useState, useCallback } from 'react';
 import {
@@ -8,12 +9,14 @@ import {
   RefreshControl,
   Pressable,
   Alert,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, router } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../services/supabaseClient';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface MedicationInventory {
   id: string;
@@ -35,6 +38,17 @@ export default function MedicineCabinetScreen() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'low_stock' | 'expiring'>('all');
 
+  // ✅ NEW: Modal for enabling tracking
+  const [showEnableModal, setShowEnableModal] = useState(false);
+  const [selectedMed, setSelectedMed] = useState<MedicationInventory | null>(null);
+  const [totalQuantity, setTotalQuantity] = useState('');
+  const [currentQuantity, setCurrentQuantity] = useState('');
+  const [lowStockThreshold, setLowStockThreshold] = useState('5');
+  const [startDate, setStartDate] = useState(new Date());
+  const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState(false);
+
   const CURRENT_USER_ID = user?.id;
 
   useFocusEffect(
@@ -42,7 +56,6 @@ export default function MedicineCabinetScreen() {
       if (CURRENT_USER_ID) {
         loadMedications();
         
-        // Set up real-time subscription
         const subscription = setupRealtimeSubscription();
         
         return () => {
@@ -109,8 +122,6 @@ export default function MedicineCabinetScreen() {
       }
 
       setMedications(filteredData);
-      
-      // ✅ CHECK LOW STOCK - VISUAL ONLY, NO NOTIFICATIONS
       checkLowStockVisualIndicators(filteredData);
     } catch (error) {
       console.error('❌ Error loading medications:', error);
@@ -120,7 +131,6 @@ export default function MedicineCabinetScreen() {
     }
   };
 
-  // ✅ NEW: Visual-only low stock check (no notifications)
   const checkLowStockVisualIndicators = (meds: MedicationInventory[]) => {
     const lowStockMeds = meds.filter(
       med => med.current_quantity <= med.low_stock_threshold && 
@@ -133,8 +143,6 @@ export default function MedicineCabinetScreen() {
       lowStockMeds.forEach(med => {
         console.log(`   - ${med.medication_name}: ${med.current_quantity} remaining`);
       });
-      // The red badges and colors in the UI show this automatically
-      // NO notifications sent
     }
   };
 
@@ -143,8 +151,66 @@ export default function MedicineCabinetScreen() {
     loadMedications();
   };
 
+  // ✅ NEW: Open enable tracking modal
+  const handleOpenEnableModal = (medication: MedicationInventory) => {
+    setSelectedMed(medication);
+    setTotalQuantity('30');
+    setCurrentQuantity('30');
+    setLowStockThreshold('5');
+    setStartDate(new Date());
+    setExpiryDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+    setShowEnableModal(true);
+  };
+
+  // ✅ NEW: Enable tracking for medication
+  const handleEnableTracking = async () => {
+    if (!selectedMed) return;
+
+    if (!totalQuantity.trim() || !currentQuantity.trim()) {
+      Alert.alert('Error', 'Please enter quantity information');
+      return;
+    }
+
+    const totalQty = parseInt(totalQuantity);
+    const currentQty = parseInt(currentQuantity);
+    const threshold = parseInt(lowStockThreshold);
+
+    if (isNaN(totalQty) || isNaN(currentQty) || isNaN(threshold)) {
+      Alert.alert('Error', 'Please enter valid numbers');
+      return;
+    }
+
+    if (currentQty > totalQty) {
+      Alert.alert('Error', 'Current quantity cannot exceed total quantity');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('medications')
+        .update({
+          total_quantity: totalQty,
+          current_quantity: currentQty,
+          low_stock_threshold: threshold,
+          start_date: startDate.toISOString().split('T')[0],
+          expiry_date: expiryDate.toISOString().split('T')[0],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedMed.id);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Inventory tracking enabled!');
+      setShowEnableModal(false);
+      setSelectedMed(null);
+      loadMedications();
+    } catch (error) {
+      console.error('Error enabling tracking:', error);
+      Alert.alert('Error', 'Failed to enable tracking');
+    }
+  };
+
   const getStockStatus = (current: number, threshold: number, total: number) => {
-    // Handle medications without inventory tracking
     if (threshold === 0 && total === 0) {
       return { 
         status: 'no_tracking', 
@@ -211,7 +277,6 @@ export default function MedicineCabinetScreen() {
               return;
             }
 
-            // ✅ Prevent updating if it exceeds total quantity
             if (newQty > medication.total_quantity) {
               Alert.alert(
                 'Error', 
@@ -221,12 +286,6 @@ export default function MedicineCabinetScreen() {
             }
 
             try {
-              console.log('📝 Updating quantity:', {
-                medication: medication.medication_name,
-                from: medication.current_quantity,
-                to: newQty
-              });
-
               const { error } = await supabase
                 .from('medications')
                 .update({ 
@@ -237,7 +296,6 @@ export default function MedicineCabinetScreen() {
 
               if (error) throw error;
 
-              // ✅ Show low stock warning VISUALLY only
               if (newQty <= medication.low_stock_threshold && medication.low_stock_threshold > 0) {
                 Alert.alert(
                   '⚠️ Low Stock',
@@ -379,11 +437,16 @@ export default function MedicineCabinetScreen() {
               Inventory tracking not enabled for this medication
             </Text>
             <Pressable 
-              style={styles.actionButton}
-              onPress={() => router.push('/(tabs)/medications')}
+              style={styles.enableButton}
+              onPress={() => handleOpenEnableModal(medication)}
             >
-              <Ionicons name="settings-outline" size={18} color="#6366F1" />
-              <Text style={styles.actionButtonText}>Enable Tracking</Text>
+              <LinearGradient
+                colors={['#6366F1', '#8B5CF6']}
+                style={styles.enableButtonGradient}
+              >
+                <Ionicons name="checkmark-circle-outline" size={20} color="white" />
+                <Text style={styles.enableButtonText}>Enable Tracking</Text>
+              </LinearGradient>
             </Pressable>
           </View>
         )}
@@ -444,6 +507,114 @@ export default function MedicineCabinetScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* ✅ NEW: Enable Tracking Modal */}
+      {showEnableModal && selectedMed && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Enable Inventory Tracking</Text>
+              <Pressable onPress={() => setShowEnableModal(false)}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              {selectedMed.medication_name} - {selectedMed.dosage}{selectedMed.dosage_unit}
+            </Text>
+
+            <View style={styles.modalForm}>
+              <View style={styles.inputRow}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Total Quantity</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={totalQuantity}
+                    onChangeText={setTotalQuantity}
+                    keyboardType="numeric"
+                    placeholder="30"
+                  />
+                </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Current</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={currentQuantity}
+                    onChangeText={setCurrentQuantity}
+                    keyboardType="numeric"
+                    placeholder="30"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Low Stock Alert (threshold)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={lowStockThreshold}
+                  onChangeText={setLowStockThreshold}
+                  keyboardType="numeric"
+                  placeholder="5"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Start Date</Text>
+                <Pressable 
+                  style={styles.dateButton}
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={20} color="#6366F1" />
+                  <Text style={styles.dateText}>{startDate.toLocaleDateString()}</Text>
+                </Pressable>
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={startDate}
+                    mode="date"
+                    display="default"
+                    onChange={(event, date) => {
+                      setShowStartDatePicker(false);
+                      if (date) setStartDate(date);
+                    }}
+                  />
+                )}
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Expiry Date</Text>
+                <Pressable 
+                  style={styles.dateButton}
+                  onPress={() => setShowExpiryDatePicker(true)}
+                >
+                  <Ionicons name="warning-outline" size={20} color="#F59E0B" />
+                  <Text style={styles.dateText}>{expiryDate.toLocaleDateString()}</Text>
+                </Pressable>
+                {showExpiryDatePicker && (
+                  <DateTimePicker
+                    value={expiryDate}
+                    mode="date"
+                    display="default"
+                    minimumDate={new Date()}
+                    onChange={(event, date) => {
+                      setShowExpiryDatePicker(false);
+                      if (date) setExpiryDate(date);
+                    }}
+                  />
+                )}
+              </View>
+            </View>
+
+            <Pressable style={styles.saveButton} onPress={handleEnableTracking}>
+              <LinearGradient
+                colors={['#10B981', '#059669']}
+                style={styles.saveButtonGradient}
+              >
+                <Text style={styles.saveButtonText}>Enable Tracking</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -611,6 +782,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+    marginBottom: 8,
   },
   cardActions: {
     flexDirection: 'row',
@@ -632,6 +804,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6366F1',
   },
+  enableButton: {
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  enableButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  enableButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: 'white',
+  },
   emptyState: {
     alignItems: 'center',
     padding: 40,
@@ -648,5 +836,91 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     textAlign: 'center',
+  },
+  // Modal styles
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+  },
+  modalForm: {
+    gap: 16,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  inputGroup: {
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    gap: 8,
+  },
+  dateText: {
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  saveButton: {
+    marginTop: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  saveButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
   },
 });

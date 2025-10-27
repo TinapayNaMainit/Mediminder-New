@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx - FIXED: Progress Stats + Auto-detect Missed Medications
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -18,16 +19,34 @@ import { useAuth } from '../../contexts/AuthContext';
 interface MedicationStatus {
   taken: boolean;
   skipped: boolean;
+  missed: boolean;
   status: 'taken' | 'skipped' | 'missed' | null;
 }
 
-// ✅ FIXED: Helper function to get local date string
-const getLocalDateString = (): string => {
+// ✅ FIXED: Helper function to get Philippine Time date string
+const getPhilippineDateString = (): string => {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+  const year = phTime.getUTCFullYear();
+  const month = String(phTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(phTime.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// ✅ FIX: Check if medication time has passed (Philippine Time)
+const hasMedicationTimePassed = (reminderTime: string): boolean => {
+  const now = new Date();
+  // Convert to Philippine time
+  const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+  
+  const [reminderHour, reminderMinute] = reminderTime.split(':').map(Number);
+  const currentHour = phTime.getUTCHours();
+  const currentMinute = phTime.getUTCMinutes();
+  
+  if (currentHour > reminderHour) return true;
+  if (currentHour === reminderHour && currentMinute >= reminderMinute) return true;
+  
+  return false;
 };
 
 export default function HomeScreen() {
@@ -39,6 +58,7 @@ export default function HomeScreen() {
   const [stats, setStats] = useState({
     taken: 0,
     pending: 0,
+    missed: 0,
     total: 0,
   });
   const [aiCompanionEnabled, setAiCompanionEnabled] = useState(true);
@@ -63,6 +83,13 @@ export default function HomeScreen() {
     loadTodaysMedications();
     loadStats();
     loadAICompanionStatus();
+
+    // ✅ FIX: Check for missed medications every minute
+    const missedCheckInterval = setInterval(() => {
+      checkAndMarkMissedMedications();
+    }, 60000); // Check every minute
+
+    return () => clearInterval(missedCheckInterval);
   }, []);
 
   const loadAICompanionStatus = async () => {
@@ -105,8 +132,7 @@ export default function HomeScreen() {
 
   const loadTodayLogs = async (medications: DatabaseMedication[]) => {
     try {
-      // ✅ FIXED: Use local date string
-      const today = getLocalDateString();
+      const today = getPhilippineDateString();
       
       console.log('📋 Loading logs for date:', today);
       
@@ -124,6 +150,7 @@ export default function HomeScreen() {
         logMap[med.id] = {
           taken: false,
           skipped: false,
+          missed: false,
           status: null
         };
       });
@@ -133,6 +160,7 @@ export default function HomeScreen() {
           logMap[log.medication_id] = {
             taken: log.status === 'taken',
             skipped: log.status === 'skipped',
+            missed: log.status === 'missed',
             status: log.status as 'taken' | 'skipped' | 'missed'
           };
         }
@@ -145,10 +173,79 @@ export default function HomeScreen() {
     }
   };
 
+  // ✅ FIX: Auto-detect and mark missed medications
+  const checkAndMarkMissedMedications = async () => {
+    if (!CURRENT_USER_ID) return;
+
+    try {
+      const today = getPhilippineDateString();
+      
+      for (const med of todaysMedications) {
+        // Skip if already logged (taken/skipped/missed)
+        if (medicationLogs[med.id]?.status) continue;
+        
+        // Check if time has passed by more than 1 hour
+        if (hasMedicationTimePassed(med.reminder_time)) {
+          const [reminderHour, reminderMinute] = med.reminder_time.split(':').map(Number);
+          const now = new Date();
+          const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+          const currentHour = phTime.getUTCHours();
+          const currentMinute = phTime.getUTCMinutes();
+          
+          // Calculate time difference in minutes
+          const reminderTimeInMinutes = reminderHour * 60 + reminderMinute;
+          const currentTimeInMinutes = currentHour * 60 + currentMinute;
+          const timeDifference = currentTimeInMinutes - reminderTimeInMinutes;
+          
+          // Mark as missed if more than 60 minutes late
+          if (timeDifference >= 60) {
+            console.log(`⚠️ Marking ${med.medication_name} as missed (${timeDifference} minutes late)`);
+            
+            // Check if already has a log
+            const { data: existingLog } = await supabase
+              .from('medication_logs')
+              .select('id')
+              .eq('medication_id', med.id)
+              .eq('user_id', CURRENT_USER_ID)
+              .eq('log_date', today)
+              .single();
+
+            if (!existingLog) {
+              // Create missed log
+              const { error } = await supabase
+                .from('medication_logs')
+                .insert({
+                  medication_id: med.id,
+                  user_id: CURRENT_USER_ID,
+                  log_date: today,
+                  status: 'missed',
+                  logged_at: new Date().toISOString(),
+                });
+
+              if (!error) {
+                console.log(`✅ Marked ${med.medication_name} as missed`);
+                // Update local state
+                setMedicationLogs(prev => ({
+                  ...prev,
+                  [med.id]: { taken: false, skipped: false, missed: true, status: 'missed' }
+                }));
+              }
+            }
+          }
+        }
+      }
+      
+      // Reload stats after checking
+      await loadStats();
+    } catch (error) {
+      console.error('Error checking missed medications:', error);
+    }
+  };
+
+  // ✅ FIX: Calculate accurate stats including pending
   const loadStats = async () => {
     try {
-      // ✅ FIXED: Use local date string
-      const today = getLocalDateString();
+      const today = getPhilippineDateString();
       
       const { data: logs, error } = await supabase
         .from('medication_logs')
@@ -159,11 +256,17 @@ export default function HomeScreen() {
       if (error) throw error;
 
       const taken = logs?.filter(log => log.status === 'taken').length || 0;
-      const total = logs?.length || 0;
+      const missed = logs?.filter(log => log.status === 'missed').length || 0;
+      const total = todaysMedications.length;
+      const logged = logs?.length || 0;
+      const pending = Math.max(0, total - logged);
+      
+      console.log('📊 Stats:', { taken, missed, pending, total, logged });
       
       setStats({
         taken,
-        pending: Math.max(0, todaysMedications.length - total),
+        pending,
+        missed,
         total,
       });
 
@@ -192,10 +295,11 @@ export default function HomeScreen() {
       let checkDate = new Date();
 
       for (let i = 0; i < 30; i++) {
-        // ✅ FIXED: Use local date string helper
-        const year = checkDate.getFullYear();
-        const month = String(checkDate.getMonth() + 1).padStart(2, '0');
-        const day = String(checkDate.getDate()).padStart(2, '0');
+        // Use Philippine time
+        const phTime = new Date(checkDate.getTime() + (8 * 60 * 60 * 1000));
+        const year = phTime.getUTCFullYear();
+        const month = String(phTime.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(phTime.getUTCDate()).padStart(2, '0');
         const dateStr = `${year}-${month}-${day}`;
 
         const { data: logs } = await supabase
@@ -227,11 +331,10 @@ export default function HomeScreen() {
     try {
       setMedicationLogs(prev => ({ 
         ...prev, 
-        [medicationId]: { taken: true, skipped: false, status: 'taken' } 
+        [medicationId]: { taken: true, skipped: false, missed: false, status: 'taken' } 
       }));
       
-      // ✅ FIXED: Use local date string
-      const today = getLocalDateString();
+      const today = getPhilippineDateString();
       
       console.log('💊 Logging medication as taken');
       console.log('   Date:', today);
@@ -277,7 +380,7 @@ export default function HomeScreen() {
       console.error('Error logging medication:', error);
       setMedicationLogs(prev => ({ 
         ...prev, 
-        [medicationId]: { taken: false, skipped: false, status: null } 
+        [medicationId]: { taken: false, skipped: false, missed: false, status: null } 
       }));
     }
   };
@@ -286,11 +389,10 @@ export default function HomeScreen() {
     try {
       setMedicationLogs(prev => ({ 
         ...prev, 
-        [medicationId]: { taken: false, skipped: true, status: 'skipped' } 
+        [medicationId]: { taken: false, skipped: true, missed: false, status: 'skipped' } 
       }));
       
-      // ✅ FIXED: Use local date string
-      const today = getLocalDateString();
+      const today = getPhilippineDateString();
       
       console.log('⏭️ Logging medication as skipped');
       console.log('   Date:', today);
@@ -336,7 +438,7 @@ export default function HomeScreen() {
       console.error('Error skipping medication:', error);
       setMedicationLogs(prev => ({ 
         ...prev, 
-        [medicationId]: { taken: false, skipped: false, status: null } 
+        [medicationId]: { taken: false, skipped: false, missed: false, status: null } 
       }));
     }
   };
@@ -424,7 +526,7 @@ export default function HomeScreen() {
             >
               <Ionicons name="checkmark-circle" size={32} color="white" />
               <Text style={styles.statNumber}>{stats.taken}</Text>
-              <Text style={styles.statLabel}>Taken Today</Text>
+              <Text style={styles.statLabel}>Taken</Text>
             </LinearGradient>
             
             <LinearGradient
@@ -434,6 +536,15 @@ export default function HomeScreen() {
               <Ionicons name="time" size={32} color="white" />
               <Text style={styles.statNumber}>{stats.pending}</Text>
               <Text style={styles.statLabel}>Pending</Text>
+            </LinearGradient>
+
+            <LinearGradient
+              colors={['#EF4444', '#DC2626']}
+              style={styles.statCard}
+            >
+              <Ionicons name="alert-circle" size={32} color="white" />
+              <Text style={styles.statNumber}>{stats.missed}</Text>
+              <Text style={styles.statLabel}>Missed</Text>
             </LinearGradient>
           </View>
         </View>

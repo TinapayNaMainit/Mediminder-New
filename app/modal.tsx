@@ -1,4 +1,4 @@
-// app/modal.tsx - PRODUCTION READY
+// app/modal.tsx - FIXED TIME HANDLING
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -61,14 +61,29 @@ export default function AddOrEditMedicationModal() {
   useEffect(() => {
     if (editingMedication?.reminder_time) {
       const [hour, minute] = editingMedication.reminder_time.split(':').map(Number);
-      setReminderHour(hour.toString().padStart(2, '0'));
-      setReminderMinute(minute.toString().padStart(2, '0'));
+      
+      // Set the format based on current selection
+      if (use24HourFormat) {
+        setReminderHour(hour.toString().padStart(2, '0'));
+        setReminderMinute(minute.toString().padStart(2, '0'));
+      } else {
+        // Convert to 12-hour format
+        const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        const period = hour >= 12 ? 'PM' : 'AM';
+        setReminderHour(hour12.toString());
+        setReminderMinute(minute.toString().padStart(2, '0'));
+        setAmPm(period);
+      }
     }
-  }, [editingMedication]);
+  }, [editingMedication, use24HourFormat]);
 
+  // ✅ FIX: Proper conversion to 24-hour format
   const convertTo24Hour = (hour12: number, period: 'AM' | 'PM'): number => {
-    if (period === 'AM') return hour12 === 12 ? 0 : hour12;
-    else return hour12 === 12 ? 12 : hour12 + 12;
+    if (period === 'AM') {
+      return hour12 === 12 ? 0 : hour12;
+    } else {
+      return hour12 === 12 ? 12 : hour12 + 12;
+    }
   };
 
   const handleSave = async () => {
@@ -80,19 +95,37 @@ export default function AddOrEditMedicationModal() {
     let hour24: number;
     let minute: number;
 
+    // ✅ FIX: Proper time handling
     if (use24HourFormat) {
       hour24 = parseInt(reminderHour);
       minute = parseInt(reminderMinute);
+      
+      if (isNaN(hour24) || hour24 < 0 || hour24 > 23) {
+        Alert.alert('Error', 'Please enter a valid hour (0-23)');
+        return;
+      }
     } else {
       const hour12 = parseInt(reminderHour);
       minute = parseInt(reminderMinute);
+      
+      if (isNaN(hour12) || hour12 < 1 || hour12 > 12) {
+        Alert.alert('Error', 'Please enter a valid hour (1-12)');
+        return;
+      }
+      
       hour24 = convertTo24Hour(hour12, amPm);
     }
 
-    if (isNaN(hour24) || hour24 < 0 || hour24 > 23 || isNaN(minute) || minute < 0 || minute > 59) {
-      Alert.alert('Error', 'Please enter a valid time.');
+    if (isNaN(minute) || minute < 0 || minute > 59) {
+      Alert.alert('Error', 'Please enter a valid minute (0-59)');
       return;
     }
+
+    console.log('🕐 Scheduling notification for:', {
+      hour24,
+      minute,
+      formatted: `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+    });
 
     if (trackInventory) {
       if (!totalQuantity.trim() || !currentQuantity.trim()) {
@@ -378,12 +411,21 @@ export default function AddOrEditMedicationModal() {
                   <Switch
                     value={!use24HourFormat}
                     onValueChange={(value) => {
+                      const currentHour24 = use24HourFormat 
+                        ? parseInt(reminderHour)
+                        : convertTo24Hour(parseInt(reminderHour), amPm);
+                      
                       setUse24HourFormat(!value);
+                      
                       if (!value) {
-                        setReminderHour('8');
+                        // Switching to 24-hour
+                        setReminderHour(currentHour24.toString().padStart(2, '0'));
                       } else {
-                        setReminderHour('8');
-                        setAmPm('AM');
+                        // Switching to 12-hour
+                        const hour12 = currentHour24 === 0 ? 12 : currentHour24 > 12 ? currentHour24 - 12 : currentHour24;
+                        const period = currentHour24 >= 12 ? 'PM' : 'AM';
+                        setReminderHour(hour12.toString());
+                        setAmPm(period);
                       }
                     }}
                     trackColor={{ false: '#D1D5DB', true: '#6366F1' }}
