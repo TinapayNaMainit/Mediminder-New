@@ -487,7 +487,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Mediminder v1.1.0</Text>
+          <Text style={styles.footerText}>Mediminder v1.1.5</Text>
           <Text style={styles.footerSubtext}>With AI Companion by Google Gemini</Text>
         </View>
       </ScrollView>
