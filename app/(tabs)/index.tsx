@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - FIXED: Progress Stats + Auto-detect Missed Medications
+// app/(tabs)/index.tsx - Enhanced with auto-decrement and missed dose adjustment
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   RefreshControl,
   Pressable,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +16,11 @@ import { supabase, DatabaseMedication, formatDate } from '../../services/supabas
 import MedicationCard from '../../components/MedicationCard';
 import AIChatHead from '../../components/AIChatHead';
 import { useAuth } from '../../contexts/AuthContext';
+import { 
+  inventoryService, 
+  missedDoseService,
+  disposalService 
+} from '../../services/medicationEnhancedService';
 
 interface MedicationStatus {
   taken: boolean;
@@ -23,7 +29,6 @@ interface MedicationStatus {
   status: 'taken' | 'skipped' | 'missed' | null;
 }
 
-// ✅ FIXED: Helper function to get Philippine Time date string
 const getPhilippineDateString = (): string => {
   const now = new Date();
   const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
@@ -33,10 +38,8 @@ const getPhilippineDateString = (): string => {
   return `${year}-${month}-${day}`;
 };
 
-// ✅ FIX: Check if medication time has passed (Philippine Time)
 const hasMedicationTimePassed = (reminderTime: string): boolean => {
   const now = new Date();
-  // Convert to Philippine time
   const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
   
   const [reminderHour, reminderMinute] = reminderTime.split(':').map(Number);
@@ -70,12 +73,13 @@ export default function HomeScreen() {
     return null;
   }
 
-  // Reload data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadTodaysMedications();
       loadStats();
       loadAICompanionStatus();
+      checkExpiredMedications();
+      checkLowStockMedications();
     }, [])
   );
 
@@ -84,13 +88,31 @@ export default function HomeScreen() {
     loadStats();
     loadAICompanionStatus();
 
-    // ✅ FIX: Check for missed medications every minute
+    // Check for missed medications every minute
     const missedCheckInterval = setInterval(() => {
       checkAndMarkMissedMedications();
-    }, 60000); // Check every minute
+    }, 60000);
+
+    // ✅ NEW: Check expired medications daily
+    checkExpiredMedications();
+    
+    // ✅ NEW: Check low stock daily
+    checkLowStockMedications();
 
     return () => clearInterval(missedCheckInterval);
   }, []);
+
+  // ✅ NEW: Check for expired medications
+  const checkExpiredMedications = async () => {
+    if (!CURRENT_USER_ID) return;
+    await disposalService.alertExpiredMedications(CURRENT_USER_ID);
+  };
+
+  // ✅ NEW: Check for low stock medications
+  const checkLowStockMedications = async () => {
+    if (!CURRENT_USER_ID) return;
+    await inventoryService.checkRefillAlerts(CURRENT_USER_ID);
+  };
 
   const loadAICompanionStatus = async () => {
     try {
@@ -134,8 +156,6 @@ export default function HomeScreen() {
     try {
       const today = getPhilippineDateString();
       
-      console.log('📋 Loading logs for date:', today);
-      
       const { data: logs, error } = await supabase
         .from('medication_logs')
         .select('medication_id, status')
@@ -166,14 +186,12 @@ export default function HomeScreen() {
         }
       });
       
-      console.log('✅ Loaded', logs?.length || 0, 'logs for today');
       setMedicationLogs(logMap);
     } catch (error) {
       console.error('Error loading logs:', error);
     }
   };
 
-  // ✅ FIX: Auto-detect and mark missed medications
   const checkAndMarkMissedMedications = async () => {
     if (!CURRENT_USER_ID) return;
 
@@ -181,10 +199,8 @@ export default function HomeScreen() {
       const today = getPhilippineDateString();
       
       for (const med of todaysMedications) {
-        // Skip if already logged (taken/skipped/missed)
         if (medicationLogs[med.id]?.status) continue;
         
-        // Check if time has passed by more than 1 hour
         if (hasMedicationTimePassed(med.reminder_time)) {
           const [reminderHour, reminderMinute] = med.reminder_time.split(':').map(Number);
           const now = new Date();
@@ -192,16 +208,11 @@ export default function HomeScreen() {
           const currentHour = phTime.getUTCHours();
           const currentMinute = phTime.getUTCMinutes();
           
-          // Calculate time difference in minutes
           const reminderTimeInMinutes = reminderHour * 60 + reminderMinute;
           const currentTimeInMinutes = currentHour * 60 + currentMinute;
           const timeDifference = currentTimeInMinutes - reminderTimeInMinutes;
           
-          // Mark as missed if more than 60 minutes late
           if (timeDifference >= 60) {
-            console.log(`⚠️ Marking ${med.medication_name} as missed (${timeDifference} minutes late)`);
-            
-            // Check if already has a log
             const { data: existingLog } = await supabase
               .from('medication_logs')
               .select('id')
@@ -211,7 +222,6 @@ export default function HomeScreen() {
               .single();
 
             if (!existingLog) {
-              // Create missed log
               const { error } = await supabase
                 .from('medication_logs')
                 .insert({
@@ -223,8 +233,19 @@ export default function HomeScreen() {
                 });
 
               if (!error) {
-                console.log(`✅ Marked ${med.medication_name} as missed`);
-                // Update local state
+                // ✅ NEW: Offer to adjust next dose
+                Alert.alert(
+                  '⚠️ Missed Dose',
+                  `You missed ${med.medication_name} at ${med.reminder_time}.\n\nWould you like to adjust your next reminder?`,
+                  [
+                    { text: 'No', style: 'cancel' },
+                    { 
+                      text: 'Adjust Schedule', 
+                      onPress: () => missedDoseService.adjustNextDose(med.id, med.reminder_time)
+                    }
+                  ]
+                );
+
                 setMedicationLogs(prev => ({
                   ...prev,
                   [med.id]: { taken: false, skipped: false, missed: true, status: 'missed' }
@@ -235,14 +256,12 @@ export default function HomeScreen() {
         }
       }
       
-      // Reload stats after checking
       await loadStats();
     } catch (error) {
       console.error('Error checking missed medications:', error);
     }
   };
 
-  // ✅ FIX: Calculate accurate stats including pending
   const loadStats = async () => {
     try {
       const today = getPhilippineDateString();
@@ -260,8 +279,6 @@ export default function HomeScreen() {
       const total = todaysMedications.length;
       const logged = logs?.length || 0;
       const pending = Math.max(0, total - logged);
-      
-      console.log('📊 Stats:', { taken, missed, pending, total, logged });
       
       setStats({
         taken,
@@ -295,7 +312,6 @@ export default function HomeScreen() {
       let checkDate = new Date();
 
       for (let i = 0; i < 30; i++) {
-        // Use Philippine time
         const phTime = new Date(checkDate.getTime() + (8 * 60 * 60 * 1000));
         const year = phTime.getUTCFullYear();
         const month = String(phTime.getUTCMonth() + 1).padStart(2, '0');
@@ -327,6 +343,7 @@ export default function HomeScreen() {
     }
   };
 
+  // ✅ ENHANCED: Auto-decrement inventory on take
   const handleTakeMedication = async (medicationId: string) => {
     try {
       setMedicationLogs(prev => ({ 
@@ -335,10 +352,6 @@ export default function HomeScreen() {
       }));
       
       const today = getPhilippineDateString();
-      
-      console.log('💊 Logging medication as taken');
-      console.log('   Date:', today);
-      console.log('   Time:', new Date().toLocaleString());
       
       const { data: existingLog } = await supabase
         .from('medication_logs')
@@ -358,7 +371,6 @@ export default function HomeScreen() {
           .eq('id', existingLog.id);
 
         if (error) throw error;
-        console.log('✅ Updated existing log');
       } else {
         const { error } = await supabase
           .from('medication_logs')
@@ -371,8 +383,14 @@ export default function HomeScreen() {
           });
 
         if (error) throw error;
-        console.log('✅ Created new log');
       }
+
+      // ✅ NEW: Auto-decrement pill count (triggered by database trigger)
+      // The database trigger will automatically decrement the quantity
+      // We just need to reload the medications to show updated count
+      setTimeout(() => {
+        loadTodaysMedications();
+      }, 500);
       
       await loadStats();
       
@@ -394,10 +412,6 @@ export default function HomeScreen() {
       
       const today = getPhilippineDateString();
       
-      console.log('⏭️ Logging medication as skipped');
-      console.log('   Date:', today);
-      console.log('   Time:', new Date().toLocaleString());
-      
       const { data: existingLog } = await supabase
         .from('medication_logs')
         .select('id')
@@ -416,7 +430,6 @@ export default function HomeScreen() {
           .eq('id', existingLog.id);
 
         if (error) throw error;
-        console.log('✅ Updated existing log');
       } else {
         const { error } = await supabase
           .from('medication_logs')
@@ -429,7 +442,6 @@ export default function HomeScreen() {
           });
 
         if (error) throw error;
-        console.log('✅ Created new log');
       }
       
       await loadStats();
@@ -550,123 +562,31 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* AI Chat Head - Only show if enabled */}
       {aiCompanionEnabled && <AIChatHead userId={CURRENT_USER_ID} />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    paddingTop: 50,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  greeting: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: 'white',
-  },
-  date: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
-  streakContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    padding: 16,
-    borderRadius: 16,
-  },
-  streakNumber: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: 'white',
-  },
-  streakLabel: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
-  content: {
-    flex: 1,
-    paddingTop: 20,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-    marginHorizontal: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#6B7280',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  addButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  addButtonGradient: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  addButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    padding: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: 'white',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  header: { paddingTop: 50, paddingBottom: 30, paddingHorizontal: 20 },
+  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  greeting: { fontSize: 28, fontWeight: '700', color: 'white' },
+  date: { fontSize: 16, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  streakContainer: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', padding: 16, borderRadius: 16 },
+  streakNumber: { fontSize: 32, fontWeight: '700', color: 'white' },
+  streakLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  content: { flex: 1, paddingTop: 20 },
+  section: { marginBottom: 24 },
+  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937', marginHorizontal: 16, marginBottom: 16 },
+  emptyState: { alignItems: 'center', padding: 40, marginHorizontal: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#6B7280', marginTop: 16, marginBottom: 8 },
+  emptyText: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', marginBottom: 20 },
+  addButton: { borderRadius: 12, overflow: 'hidden' },
+  addButtonGradient: { paddingHorizontal: 24, paddingVertical: 12 },
+  addButtonText: { color: 'white', fontWeight: '600', fontSize: 16 },
+  statsContainer: { flexDirection: 'row', paddingHorizontal: 16, gap: 12 },
+  statCard: { flex: 1, padding: 20, borderRadius: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  statNumber: { fontSize: 24, fontWeight: '700', color: 'white', marginTop: 8 },
+  statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
 });

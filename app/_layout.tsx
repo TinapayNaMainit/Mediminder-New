@@ -1,4 +1,4 @@
-// app/_layout.tsx - FIXED: Removed auto-notification on app start
+// app/_layout.tsx - UPDATED with SafeAreaProvider
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '../contexts/AuthContext';
 import AuthWrapper from '../components/AuthWrapper';
 import { ProfileProvider } from '../contexts/ProfileContext';
@@ -22,7 +23,6 @@ export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
 
-// Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -31,18 +31,14 @@ export default function RootLayout() {
     ...FontAwesome.font,
   });
 
-  // Handle font loading errors
   useEffect(() => {
     if (error) throw error;
   }, [error]);
 
-  // Initialize app when fonts are loaded
   useEffect(() => {
     if (loaded) {
       SplashScreen.hideAsync();
       initializeNotifications();
-      // ✅ REMOVED: No auto-rescheduling
-      // Notifications are ONLY scheduled when medications are added/edited
     }
   }, [loaded]);
 
@@ -50,14 +46,9 @@ export default function RootLayout() {
     try {
       console.log('🔔 Initializing notification system...');
       
-      // ✅ Just set up the system, don't request permissions yet
-      // Permissions will be requested when user adds medication
-      
-      // Set up notification categories (action buttons)
       await notificationService.setupNotificationCategories();
       console.log('✅ Notification categories set up');
       
-      // Set up notification response handlers
       notificationService.setupNotificationResponseHandler(
         handleTakeMedication,
         handleSnoozeMedication,
@@ -75,14 +66,12 @@ export default function RootLayout() {
       console.log(`💊 Taking medication from notification: ${medicationId}`);
       const today = new Date().toISOString().split('T')[0];
       
-      // Get current user
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) {
         console.warn('⚠️ No user session');
         return;
       }
 
-      // Check if log already exists
       const { data: existingLog } = await supabase
         .from('medication_logs')
         .select('id')
@@ -92,7 +81,6 @@ export default function RootLayout() {
         .single();
 
       if (existingLog) {
-        // Update existing
         const { error } = await supabase
           .from('medication_logs')
           .update({
@@ -104,7 +92,6 @@ export default function RootLayout() {
         if (error) throw error;
         console.log('✅ Updated existing log to taken');
       } else {
-        // Insert new
         const { error } = await supabase
           .from('medication_logs')
           .insert({
@@ -129,7 +116,6 @@ export default function RootLayout() {
     try {
       console.log(`⏰ Snoozing medication: ${medicationId}`);
       
-      // Get medication details
       const { data: medication, error } = await supabase
         .from('medications')
         .select('medication_name, dosage, dosage_unit')
@@ -157,14 +143,12 @@ export default function RootLayout() {
       console.log(`⏭️ Skipping medication from notification: ${medicationId}`);
       const today = new Date().toISOString().split('T')[0];
       
-      // Get current user
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) {
         console.warn('⚠️ No user session');
         return;
       }
 
-      // Check if log already exists
       const { data: existingLog } = await supabase
         .from('medication_logs')
         .select('id')
@@ -174,7 +158,6 @@ export default function RootLayout() {
         .single();
 
       if (existingLog) {
-        // Update existing
         const { error } = await supabase
           .from('medication_logs')
           .update({
@@ -186,7 +169,6 @@ export default function RootLayout() {
         if (error) throw error;
         console.log('✅ Updated existing log to skipped');
       } else {
-        // Insert new
         const { error } = await supabase
           .from('medication_logs')
           .insert({
@@ -218,21 +200,23 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthProvider>
-        <ProfileProvider>
-          <AuthWrapper>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal" options={{ 
-                presentation: 'modal',
-                headerShown: false
-              }} />
-            </Stack>
-            <StatusBar style="light" />
-          </AuthWrapper>
-        </ProfileProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AuthProvider>
+          <ProfileProvider>
+            <AuthWrapper>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="modal" options={{ 
+                  presentation: 'modal',
+                  headerShown: false
+                }} />
+              </Stack>
+              <StatusBar style="light" />
+            </AuthWrapper>
+          </ProfileProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

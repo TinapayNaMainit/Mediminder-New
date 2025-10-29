@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mediminder",
     "slug": "Mediminder",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mediminder",
@@ -28,8 +28,7 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "CAMERA",
         "android.permission.POST_NOTIFICATIONS",
