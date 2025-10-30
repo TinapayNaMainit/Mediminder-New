@@ -1,4 +1,4 @@
-// app/modal.tsx - FIXED with Bulk Add + Centered Toggle
+// app/modal.tsx - FIXED with all missing state variables and imports
 import React, { useState } from 'react';
 import {
   View,
@@ -29,6 +29,11 @@ interface MedicationToAdd {
   unit: string;
   frequency: string;
   notes: string;
+  // Individual inventory tracking per medication
+  totalQuantity: string;
+  currentQuantity: string;
+  lowStockThreshold: string;
+  expiryDate: Date;
 }
 
 export default function BulkAddMedicationModal() {
@@ -38,39 +43,45 @@ export default function BulkAddMedicationModal() {
   const [activeTab, setActiveTab] = useState<TabType>('basic');
   const [loading, setLoading] = useState(false);
 
-  // ✅ NEW: Multiple medications support
+  // Each medication has its own inventory settings
   const [medications, setMedications] = useState<MedicationToAdd[]>([
     {
       id: '1',
       name: '',
       dosage: '',
       unit: 'mg',
-      frequency: 'Once daily',
+      frequency: 'Every 4 hours',
       notes: '',
+      totalQuantity: '30',
+      currentQuantity: '30',
+      lowStockThreshold: '5',
+      expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     }
   ]);
 
-  // ✅ Shared settings (apply to all medications)
+  // Shared settings (apply to all medications)
   const [advanceMinutes, setAdvanceMinutes] = useState(5);
-  const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
-  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState(false);
-  const [trackInventory, setTrackInventory] = useState(true);
-  const [totalQuantity, setTotalQuantity] = useState('30');
-  const [currentQuantity, setCurrentQuantity] = useState('30');
-  const [lowStockThreshold, setLowStockThreshold] = useState('5');
   const [startDate, setStartDate] = useState(new Date());
   const [allergies, setAllergies] = useState('');
   const [checkInteractions, setCheckInteractions] = useState(true);
 
+  // ✅ MISSING STATE VARIABLES - ADDED
+  const [trackInventory, setTrackInventory] = useState(false);
+  const [totalQuantity, setTotalQuantity] = useState('30');
+  const [currentQuantity, setCurrentQuantity] = useState('30');
+  const [lowStockThreshold, setLowStockThreshold] = useState('5');
+  const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+
   const dosageUnits = ['mg', 'g', 'mcg', 'ml', 'tablets', 'capsules', 'drops', 'puffs'];
   
   const frequencies = [
-    { label: 'Once daily', value: 'Once daily', icon: '1️⃣' },
-    { label: 'Twice daily', value: 'Twice daily', icon: '2️⃣' },
-    { label: 'Three times', value: 'Three times daily', icon: '3️⃣' },
-    { label: 'Four times', value: 'Four times daily', icon: '4️⃣' },
-    { label: 'Every 4hr', value: 'Every 4 hours', icon: '⏰' },
-    { label: 'Every 6hr', value: 'Every 6 hours', icon: '⏰' },
+    { label: 'Every 4hrs', value: 'Every 4 hours', icon: '⏰' },
+    { label: 'Every 6hrs', value: 'Every 6 hours', icon: '⏰' },
+    { label: 'Every 8hrs', value: 'Every 8 hours', icon: '⏰' },
+    { label: 'Every 12hrs', value: 'Every 12 hours', icon: '⏰' },
+    { label: 'Custom', value: 'Custom', icon: '⚙️' },
   ];
 
   const advanceReminderOptions = [
@@ -82,7 +93,7 @@ export default function BulkAddMedicationModal() {
     { label: '30 min', value: 30, icon: '🔔' },
   ];
 
-  // ✅ NEW: Add another medication
+  // Add another medication
   const addMedication = () => {
     const newId = (medications.length + 1).toString();
     setMedications([...medications, {
@@ -90,12 +101,16 @@ export default function BulkAddMedicationModal() {
       name: '',
       dosage: '',
       unit: 'mg',
-      frequency: 'Once daily',
+      frequency: 'Every 4 hours',
       notes: '',
+      totalQuantity: '30',
+      currentQuantity: '30',
+      lowStockThreshold: '5',
+      expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     }]);
   };
 
-  // ✅ NEW: Remove medication
+  // Remove medication
   const removeMedication = (id: string) => {
     if (medications.length === 1) {
       Alert.alert('Notice', 'You must have at least one medication');
@@ -104,7 +119,7 @@ export default function BulkAddMedicationModal() {
     setMedications(medications.filter(m => m.id !== id));
   };
 
-  // ✅ NEW: Update specific medication
+  // Update specific medication
   const updateMedication = (id: string, updates: Partial<MedicationToAdd>) => {
     setMedications(medications.map(m => m.id === id ? { ...m, ...updates } : m));
   };
@@ -176,7 +191,7 @@ export default function BulkAddMedicationModal() {
       let successCount = 0;
       const errors: string[] = [];
 
-      // ✅ Save each medication
+      // Save each medication
       for (const med of medications) {
         try {
           const schedule = smartReminderService.getScheduleForFrequency(med.frequency);
@@ -315,10 +330,15 @@ export default function BulkAddMedicationModal() {
         {renderTabButton('safety', 'Safety', 'shield-checkmark')}
       </View>
 
-      <ScrollView style={styles.form} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.form} 
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={true}
+        contentContainerStyle={styles.scrollContent}
+      >
         {activeTab === 'basic' && (
           <View style={styles.section}>
-            {/* ✅ RENDER EACH MEDICATION */}
+            {/* RENDER EACH MEDICATION */}
             {medications.map((med, index) => (
               <View key={med.id} style={styles.medicationBlock}>
                 {medications.length > 1 && (
@@ -344,7 +364,9 @@ export default function BulkAddMedicationModal() {
 
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 2, marginRight: 8 }]}>
-                    <Text style={styles.label}>Dosage *</Text>
+                    <Text style={styles.label}>
+                      {med.name.trim() ? `Dosage for ${med.name} *` : 'Dosage *'}
+                    </Text>
                     <TextInput
                       style={styles.input}
                       value={med.dosage}
@@ -408,13 +430,7 @@ export default function BulkAddMedicationModal() {
               </View>
             ))}
 
-            {/* ✅ ADD MORE BUTTON */}
-            <Pressable style={styles.addMoreButton} onPress={addMedication}>
-              <Ionicons name="add-circle-outline" size={24} color="#6366F1" />
-              <Text style={styles.addMoreText}>Add Another Medication</Text>
-            </Pressable>
-
-            {/* ✅ SHARED REMINDER SETTINGS */}
+            {/* SHARED REMINDER SETTINGS */}
             <View style={styles.sharedSection}>
               <Text style={styles.sharedSectionTitle}>⏰ Reminder Settings (applies to all)</Text>
               
@@ -475,7 +491,7 @@ export default function BulkAddMedicationModal() {
               )}
             </View>
 
-            {/* ✅ FIXED: Centered Toggle */}
+            {/* FIXED: Centered Toggle */}
             <View style={styles.toggleSection}>
               <View style={styles.toggleContent}>
                 <View style={styles.toggleTextContainer}>
@@ -564,7 +580,7 @@ export default function BulkAddMedicationModal() {
               </Text>
             </View>
 
-            {/* ✅ FIXED: Centered Toggle */}
+            {/* FIXED: Centered Toggle */}
             <View style={styles.toggleSection}>
               <View style={styles.toggleContent}>
                 <View style={styles.toggleTextContainer}>
@@ -626,9 +642,17 @@ export default function BulkAddMedicationModal() {
             )}
           </LinearGradient>
         </Pressable>
-
-        <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* FAB Button (always visible) */}
+      <Pressable style={styles.fab} onPress={addMedication}>
+        <LinearGradient
+          colors={['#6366F1', '#8B5CF6']}
+          style={styles.fabGradient}
+        >
+          <Ionicons name="add" size={28} color="white" />
+        </LinearGradient>
+      </Pressable>
     </View>
   );
 }
@@ -645,17 +669,15 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 14, fontWeight: '600', color: '#6B7280' },
   tabTextActive: { color: '#6366F1' },
   form: { flex: 1 },
+  scrollContent: { paddingBottom: 100 },
   section: { padding: 20, backgroundColor: 'white', marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
   
-  // ✅ NEW: Medication block styles
   medicationBlock: { marginBottom: 24 },
   medicationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: '#6366F1' },
   medicationNumber: { fontSize: 16, fontWeight: '700', color: '#6366F1' },
   removeButton: { padding: 8, borderRadius: 8, backgroundColor: '#FEE2E2' },
   divider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 24 },
-  addMoreButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderWidth: 2, borderColor: '#6366F1', borderStyle: 'dashed', borderRadius: 12, backgroundColor: '#F8FAFC', marginBottom: 24, gap: 8 },
-  addMoreText: { fontSize: 16, fontWeight: '600', color: '#6366F1' },
   
   sharedSection: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, marginTop: 8 },
   sharedSectionTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
@@ -680,27 +702,38 @@ const styles = StyleSheet.create({
   advanceText: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
   advanceTextActive: { color: 'white' },
   schedulePreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EEF2FF', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#C7D2FE' },
- scheduleTitle: { fontSize: 14, fontWeight: '700', color: '#6366F1', marginBottom: 4 },
-  scheduleText: { fontSize: 13, color: '#4B5563', lineHeight: 18 },
-  notesInput: { height: 80, paddingTop: 12 },
-  dateButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 12, padding: 16, backgroundColor: 'white', gap: 12 },
-  dateText: { fontSize: 16, color: '#374151', fontWeight: '500' },
+  scheduleTitle: { fontSize: 14, fontWeight: '700', color: '#6366F1', marginBottom: 4 },
+  scheduleText: { fontSize: 13, color: '#4F46E5' },
+  notesInput: { minHeight: 80, textAlignVertical: 'top' },
   
-  // ✅ FIXED: Centered toggle styles
-  toggleSection: { marginBottom: 16, backgroundColor: '#F9FAFB', borderRadius: 12, padding: 16 },
-  toggleContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  // Date picker styles
+  dateButton: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#F9FAFB', borderRadius: 12, borderWidth: 1, borderColor: '#D1D5DB', gap: 12 },
+  dateText: { fontSize: 16, color: '#374151', fontWeight: '600' },
+  
+  // Toggle styles - FIXED: Centered
+  toggleSection: { marginBottom: 16 },
+  toggleContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#D1D5DB' },
   toggleTextContainer: { flex: 1, marginRight: 12 },
   toggleTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 4 },
   toggleDescription: { fontSize: 13, color: '#6B7280', lineHeight: 18 },
   
-  note: { fontSize: 13, color: '#6B7280', fontStyle: 'italic', marginTop: 12, textAlign: 'center' },
-  infoBox: { flexDirection: 'row', backgroundColor: '#EEF2FF', padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#C7D2FE' },
-  infoTitle: { fontSize: 14, fontWeight: '700', color: '#6366F1', marginBottom: 8 },
-  infoText: { fontSize: 13, color: '#4B5563', lineHeight: 20 },
-  warningBox: { flexDirection: 'row', backgroundColor: '#FEF3C7', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#FDE68A', gap: 12 },
-  warningText: { flex: 1, fontSize: 13, color: '#92400E', lineHeight: 18 },
-  saveButton: { marginHorizontal: 20, marginTop: 20, borderRadius: 16, overflow: 'hidden', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+  // Info boxes
+  infoBox: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#EEF2FF', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#C7D2FE', marginBottom: 16 },
+  infoTitle: { fontSize: 14, fontWeight: '700', color: '#4F46E5', marginBottom: 8 },
+  infoText: { fontSize: 13, color: '#4F46E5', lineHeight: 20 },
+  
+  warningBox: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#FEF3C7', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#FCD34D', gap: 12 },
+  warningText: { flex: 1, fontSize: 13, color: '#92400E', lineHeight: 20 },
+  
+  note: { fontSize: 12, color: '#6B7280', fontStyle: 'italic', textAlign: 'center', marginTop: 12 },
+  
+  // Save button
+  saveButton: { marginHorizontal: 20, marginVertical: 16, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
   saveButtonDisabled: { opacity: 0.6 },
-  saveButtonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, gap: 8 },
+  saveButtonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, gap: 12 },
   saveButtonText: { fontSize: 18, fontWeight: '700', color: 'white' },
+  
+  // FAB button
+  fab: { position: 'absolute', right: 20, bottom: 20, width: 60, height: 60, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
+  fabGradient: { width: '100%', height: '100%', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
 });
