@@ -1,4 +1,4 @@
-// app/(tabs)/_layout.tsx - FIXED with Safe Area Insets
+// app/(tabs)/_layout.tsx - FIXED: Removed absolute positioning
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
@@ -68,16 +68,10 @@ export default function TabLayout() {
           shadowOffset: { width: 0, height: -4 },
           shadowOpacity: 0.1,
           shadowRadius: 8,
-          // ✅ FIX: Add safe area padding for bottom
+          // ✅ FIX: Remove absolute positioning
           paddingBottom: Platform.OS === 'android' ? insets.bottom + 8 : 8,
           paddingTop: 8,
-          // ✅ FIX: Dynamic height based on safe area
           height: Platform.OS === 'android' ? 70 + insets.bottom : 70,
-          // ✅ FIX: Ensure it stays above system buttons
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
         },
         tabBarLabelStyle: {
           fontSize: 10,

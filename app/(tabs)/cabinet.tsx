@@ -1,24 +1,23 @@
-// app/(tabs)/cabinet.tsx - FIXED: Enable Tracking Button
-// @ts-nocheck 
-import React, { useState, useCallback } from 'react';
+// app/(tabs)/cabinet.tsx - FIXED: Update Quantity & Low Stock Tab
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  RefreshControl,
   Pressable,
-  Alert,
   TextInput,
+  Alert,
+  RefreshControl,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, router } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../services/supabaseClient';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { useFocusEffect } from '@react-navigation/native';
 
-interface MedicationInventory {
+interface Medication {
   id: string;
   medication_name: string;
   dosage: string;
@@ -26,446 +25,357 @@ interface MedicationInventory {
   total_quantity: number;
   current_quantity: number;
   low_stock_threshold: number;
-  expiry_date: string;
-  start_date: string;
+  expiry_date: string | null;
   is_active: boolean;
+  created_at: string;
 }
 
-export default function MedicineCabinetScreen() {
+type TabType = 'all' | 'low_stock' | 'expired';
+
+export default function CabinetScreen() {
   const { user } = useAuth();
-  const [medications, setMedications] = useState<MedicationInventory[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [filteredMedications, setFilteredMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'low_stock' | 'expiring'>('all');
-
-  // ✅ NEW: Modal for enabling tracking
-  const [showEnableModal, setShowEnableModal] = useState(false);
-  const [selectedMed, setSelectedMed] = useState<MedicationInventory | null>(null);
-  const [totalQuantity, setTotalQuantity] = useState('');
-  const [currentQuantity, setCurrentQuantity] = useState('');
-  const [lowStockThreshold, setLowStockThreshold] = useState('5');
-  const [startDate, setStartDate] = useState(new Date());
-  const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
-  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState(false);
-
-  const CURRENT_USER_ID = user?.id;
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedMedication, setSelectedMedication] = useState<Medication | null>(null);
+  const [quantityInput, setQuantityInput] = useState('');
+  const [updateMode, setUpdateMode] = useState<'add' | 'set'>('add');
 
   useFocusEffect(
     useCallback(() => {
-      if (CURRENT_USER_ID) {
-        loadMedications();
-        
-        const subscription = setupRealtimeSubscription();
-        
-        return () => {
-          subscription?.unsubscribe();
-        };
-      }
-    }, [CURRENT_USER_ID, filter])
+      loadMedications();
+    }, [])
   );
 
-  const setupRealtimeSubscription = () => {
-    if (!CURRENT_USER_ID) return null;
-
-    const channel = supabase
-      .channel('cabinet_medications_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'medications',
-          filter: `user_id=eq.${CURRENT_USER_ID}`,
-        },
-        (payload) => {
-          console.log('📦 Medication updated:', payload);
-          loadMedications();
-        }
-      )
-      .subscribe();
-
-    return channel;
-  };
-
   const loadMedications = async () => {
-    if (!CURRENT_USER_ID) return;
+    if (!user?.id) return;
 
     try {
-      setLoading(true);
-      let query = supabase
+      const { data, error } = await supabase
         .from('medications')
         .select('*')
-        .eq('user_id', CURRENT_USER_ID)
-        .eq('is_active', true)
-        .order('current_quantity', { ascending: true });
-
-      const { data, error } = await query;
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      let filteredData = data || [];
+      const medsWithQuantity = (data || []).filter(
+        (med) => med.total_quantity > 0 || med.current_quantity > 0
+      );
 
-      if (filter === 'low_stock') {
-        filteredData = filteredData.filter(
-          med => med.current_quantity <= med.low_stock_threshold && med.low_stock_threshold > 0
-        );
-      } else if (filter === 'expiring') {
-        const thirtyDaysFromNow = new Date();
-        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-        
-        filteredData = filteredData.filter(med => {
-          if (!med.expiry_date) return false;
-          const expiryDate = new Date(med.expiry_date);
-          return expiryDate <= thirtyDaysFromNow && expiryDate >= new Date();
-        });
-      }
-
-      setMedications(filteredData);
-      checkLowStockVisualIndicators(filteredData);
+      setMedications(medsWithQuantity);
+      filterMedications(medsWithQuantity, activeTab);
     } catch (error) {
-      console.error('❌ Error loading medications:', error);
+      console.error('Error loading medications:', error);
+      Alert.alert('Error', 'Failed to load medications');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const checkLowStockVisualIndicators = (meds: MedicationInventory[]) => {
-    const lowStockMeds = meds.filter(
-      med => med.current_quantity <= med.low_stock_threshold && 
-             med.low_stock_threshold > 0 &&
-             med.current_quantity > 0
-    );
-    
-    if (lowStockMeds.length > 0) {
-      console.log('⚠️ Low stock medications (visual indicators only):');
-      lowStockMeds.forEach(med => {
-        console.log(`   - ${med.medication_name}: ${med.current_quantity} remaining`);
-      });
+  // ✅ FIX: Proper tab filtering logic
+  const filterMedications = (meds: Medication[], tab: TabType) => {
+    let filtered = [...meds];
+
+    switch (tab) {
+      case 'low_stock':
+        // ✅ FIX: Show medications where current <= threshold
+        filtered = meds.filter(
+          (med) => med.current_quantity <= med.low_stock_threshold && med.is_active
+        );
+        break;
+      case 'expired':
+        // Show medications that are expired
+        filtered = meds.filter((med) => {
+          if (!med.expiry_date) return false;
+          const expiryDate = new Date(med.expiry_date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          return expiryDate < today;
+        });
+        break;
+      case 'all':
+      default:
+        // Show all medications with tracking
+        filtered = meds;
+        break;
     }
+
+    setFilteredMedications(filtered);
   };
 
-  const onRefresh = () => {
+  // ✅ FIX: Handle tab change properly
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    filterMedications(medications, tab);
+  };
+
+  const handleRefresh = () => {
     setRefreshing(true);
     loadMedications();
   };
 
-  // ✅ NEW: Open enable tracking modal
-  const handleOpenEnableModal = (medication: MedicationInventory) => {
-    setSelectedMed(medication);
-    setTotalQuantity('30');
-    setCurrentQuantity('30');
-    setLowStockThreshold('5');
-    setStartDate(new Date());
-    setExpiryDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
-    setShowEnableModal(true);
+  // ✅ FIX: Open update modal with proper state
+  const openUpdateModal = (medication: Medication) => {
+    setSelectedMedication(medication);
+    setQuantityInput('');
+    setUpdateMode('add');
+    setShowUpdateModal(true);
   };
 
-  // ✅ NEW: Enable tracking for medication
-  const handleEnableTracking = async () => {
-    if (!selectedMed) return;
-
-    if (!totalQuantity.trim() || !currentQuantity.trim()) {
-      Alert.alert('Error', 'Please enter quantity information');
+  // ✅ FIX: Update quantity functionality
+  const handleUpdateQuantity = async () => {
+    if (!selectedMedication || !quantityInput.trim()) {
+      Alert.alert('Error', 'Please enter a quantity');
       return;
     }
 
-    const totalQty = parseInt(totalQuantity);
-    const currentQty = parseInt(currentQuantity);
-    const threshold = parseInt(lowStockThreshold);
-
-    if (isNaN(totalQty) || isNaN(currentQty) || isNaN(threshold)) {
-      Alert.alert('Error', 'Please enter valid numbers');
-      return;
-    }
-
-    if (currentQty > totalQty) {
-      Alert.alert('Error', 'Current quantity cannot exceed total quantity');
+    const quantity = parseInt(quantityInput);
+    if (isNaN(quantity) || quantity < 0) {
+      Alert.alert('Error', 'Please enter a valid positive number');
       return;
     }
 
     try {
+      let newCurrentQuantity = selectedMedication.current_quantity;
+
+      if (updateMode === 'add') {
+        // Add to current quantity
+        newCurrentQuantity = selectedMedication.current_quantity + quantity;
+      } else {
+        // Set as new quantity
+        newCurrentQuantity = quantity;
+      }
+
+      // Don't allow exceeding total quantity
+      if (newCurrentQuantity > selectedMedication.total_quantity) {
+        Alert.alert(
+          'Warning',
+          `New quantity (${newCurrentQuantity}) exceeds total quantity (${selectedMedication.total_quantity}). Update total quantity first or enter a lower amount.`
+        );
+        return;
+      }
+
       const { error } = await supabase
         .from('medications')
         .update({
-          total_quantity: totalQty,
-          current_quantity: currentQty,
-          low_stock_threshold: threshold,
-          start_date: startDate.toISOString().split('T')[0],
-          expiry_date: expiryDate.toISOString().split('T')[0],
+          current_quantity: newCurrentQuantity,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', selectedMed.id);
+        .eq('id', selectedMedication.id);
 
       if (error) throw error;
 
-      Alert.alert('Success', 'Inventory tracking enabled!');
-      setShowEnableModal(false);
-      setSelectedMed(null);
+      Alert.alert(
+        'Success',
+        `Updated ${selectedMedication.medication_name} to ${newCurrentQuantity} ${selectedMedication.dosage_unit}`
+      );
+
+      setShowUpdateModal(false);
+      setSelectedMedication(null);
+      setQuantityInput('');
       loadMedications();
     } catch (error) {
-      console.error('Error enabling tracking:', error);
-      Alert.alert('Error', 'Failed to enable tracking');
+      console.error('Error updating quantity:', error);
+      Alert.alert('Error', 'Failed to update quantity');
     }
   };
 
-  const getStockStatus = (current: number, threshold: number, total: number) => {
-    if (threshold === 0 && total === 0) {
-      return { 
-        status: 'no_tracking', 
-        color: '#9CA3AF', 
-        icon: 'cube-outline', 
-        text: 'Not Tracked' 
-      };
-    }
+  const getStockStatus = (medication: Medication) => {
+    const percentage = (medication.current_quantity / medication.total_quantity) * 100;
     
-    if (current === 0) {
-      return { 
-        status: 'out', 
-        color: '#EF4444', 
-        icon: 'close-circle', 
-        text: 'Out of Stock' 
-      };
+    if (medication.current_quantity === 0) {
+      return { text: 'Out of Stock', color: '#EF4444', icon: 'close-circle' };
+    } else if (medication.current_quantity <= medication.low_stock_threshold) {
+      return { text: 'Low Stock', color: '#F59E0B', icon: 'warning' };
+    } else if (percentage <= 50) {
+      return { text: 'Medium Stock', color: '#3B82F6', icon: 'information-circle' };
+    } else {
+      return { text: 'Good Stock', color: '#10B981', icon: 'checkmark-circle' };
     }
-    
-    if (current <= threshold) {
-      return { 
-        status: 'low', 
-        color: '#F59E0B', 
-        icon: 'warning', 
-        text: 'Low Stock' 
-      };
-    }
-    
-    return { 
-      status: 'good', 
-      color: '#10B981', 
-      icon: 'checkmark-circle', 
-      text: 'In Stock' 
-    };
   };
 
-  const getDaysUntilExpiry = (expiryDate: string) => {
-    const today = new Date();
+  const isExpired = (expiryDate: string | null) => {
+    if (!expiryDate) return false;
     const expiry = new Date(expiryDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return expiry < today;
+  };
+
+  const getDaysUntilExpiry = (expiryDate: string | null) => {
+    if (!expiryDate) return null;
+    const expiry = new Date(expiryDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
 
-  const getExpiryStatus = (expiryDate: string) => {
-    const days = getDaysUntilExpiry(expiryDate);
-    if (days < 0) return { color: '#EF4444', text: 'Expired', urgent: true };
-    if (days <= 7) return { color: '#EF4444', text: `${days} days left`, urgent: true };
-    if (days <= 30) return { color: '#F59E0B', text: `${days} days left`, urgent: false };
-    return { color: '#10B981', text: `${days} days left`, urgent: false };
-  };
-
-  const handleUpdateQuantity = (medication: MedicationInventory) => {
-    Alert.prompt(
-      'Update Quantity',
-      `Current quantity: ${medication.current_quantity}\nEnter new quantity:`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Update',
-          onPress: async (value) => {
-            const newQty = parseInt(value || '0');
-            if (isNaN(newQty) || newQty < 0) {
-              Alert.alert('Error', 'Please enter a valid number');
-              return;
-            }
-
-            if (newQty > medication.total_quantity) {
-              Alert.alert(
-                'Error', 
-                `Cannot exceed total quantity of ${medication.total_quantity}`
-              );
-              return;
-            }
-
-            try {
-              const { error } = await supabase
-                .from('medications')
-                .update({ 
-                  current_quantity: newQty,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', medication.id);
-
-              if (error) throw error;
-
-              if (newQty <= medication.low_stock_threshold && medication.low_stock_threshold > 0) {
-                Alert.alert(
-                  '⚠️ Low Stock',
-                  `${medication.medication_name} is now at ${newQty} ${medication.dosage_unit}.\n\nConsider restocking soon!`,
-                  [{ text: 'OK' }]
-                );
-              }
-
-              Alert.alert('Success', 'Quantity updated successfully');
-              loadMedications();
-            } catch (error) {
-              console.error('❌ Error updating quantity:', error);
-              Alert.alert('Error', 'Failed to update quantity');
-            }
-          }
-        }
-      ],
-      'plain-text',
-      medication.current_quantity.toString()
-    );
-  };
-
-  const renderFilterButton = (
-    filterType: typeof filter, 
-    label: string, 
-    icon: string, 
-    count: number
-  ) => (
+  const renderTabButton = (tab: TabType, title: string, icon: string) => (
     <Pressable
-      key={filterType}
-      style={[styles.filterButton, filter === filterType && styles.filterButtonActive]}
-      onPress={() => setFilter(filterType)}
+      key={tab}
+      style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
+      onPress={() => handleTabChange(tab)}
     >
-      <Ionicons 
-        name={icon as any} 
-        size={20} 
-        color={filter === filterType ? '#6366F1' : '#6B7280'} 
+      <Ionicons
+        name={icon as any}
+        size={20}
+        color={activeTab === tab ? '#6366F1' : '#6B7280'}
       />
-      <Text style={[styles.filterText, filter === filterType && styles.filterTextActive]}>
-        {label}
+      <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+        {title}
       </Text>
-      {count > 0 && (
-        <View style={[styles.badge, filter === filterType && styles.badgeActive]}>
-          <Text style={[styles.badgeText, filter === filterType && styles.badgeTextActive]}>
-            {count}
+      {/* Badge for low stock and expired */}
+      {tab === 'low_stock' && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>
+            {medications.filter(m => m.current_quantity <= m.low_stock_threshold && m.is_active).length}
+          </Text>
+        </View>
+      )}
+      {tab === 'expired' && (
+        <View style={[styles.badge, { backgroundColor: '#EF4444' }]}>
+          <Text style={styles.badgeText}>
+            {medications.filter(m => m.expiry_date && isExpired(m.expiry_date)).length}
           </Text>
         </View>
       )}
     </Pressable>
   );
 
-  const renderMedicationCard = (medication: MedicationInventory) => {
-    const isTracked = medication.total_quantity > 0 || medication.low_stock_threshold > 0;
-    const stockInfo = getStockStatus(
-      medication.current_quantity, 
-      medication.low_stock_threshold,
-      medication.total_quantity
-    );
-    const expiryInfo = medication.expiry_date ? getExpiryStatus(medication.expiry_date) : null;
-    const percentRemaining = medication.total_quantity > 0 
-      ? (medication.current_quantity / medication.total_quantity) * 100 
-      : 0;
+  const renderMedicationCard = (medication: Medication) => {
+    const stockStatus = getStockStatus(medication);
+    const expired = isExpired(medication.expiry_date);
+    const daysUntilExpiry = getDaysUntilExpiry(medication.expiry_date);
+    const percentage = (medication.current_quantity / medication.total_quantity) * 100;
 
     return (
-      <View key={medication.id} style={styles.card}>
+      <View key={medication.id} style={styles.medicationCard}>
         <View style={styles.cardHeader}>
           <View style={styles.medicationInfo}>
             <Text style={styles.medicationName}>{medication.medication_name}</Text>
-            <Text style={styles.dosageInfo}>
+            <Text style={styles.medicationDosage}>
               {medication.dosage} {medication.dosage_unit}
             </Text>
           </View>
-          <Ionicons 
-            name={stockInfo.icon as any} 
-            size={32} 
-            color={stockInfo.color} 
-          />
+          <View style={[styles.statusBadge, { backgroundColor: stockStatus.color }]}>
+            <Ionicons name={stockStatus.icon as any} size={16} color="white" />
+            <Text style={styles.statusText}>{stockStatus.text}</Text>
+          </View>
         </View>
 
-        {isTracked ? (
-          <>
-            <View style={styles.progressSection}>
-              <View style={styles.quantityRow}>
-                <Text style={styles.quantityLabel}>Quantity Remaining</Text>
-                <Text style={styles.quantityValue}>
-                  {medication.current_quantity} / {medication.total_quantity}
-                </Text>
-              </View>
-              <View style={styles.progressBar}>
-                <View 
-                  style={[
-                    styles.progressFill, 
-                    { 
-                      width: `${Math.max(percentRemaining, 5)}%`,
-                      backgroundColor: stockInfo.color 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.statusText, { color: stockInfo.color }]}>
-                {stockInfo.text}
-              </Text>
-            </View>
+        {/* Progress Bar */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBackground}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.min(percentage, 100)}%`,
+                  backgroundColor: stockStatus.color,
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressText}>
+            {medication.current_quantity} / {medication.total_quantity}
+          </Text>
+        </View>
 
-            {expiryInfo && (
-              <View style={[styles.expirySection, expiryInfo.urgent && styles.expirySectionUrgent]}>
-                <Ionicons name="time-outline" size={16} color={expiryInfo.color} />
-                <Text style={[styles.expiryText, { color: expiryInfo.color }]}>
-                  Expires: {new Date(medication.expiry_date).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric'
-                  })} ({expiryInfo.text})
-                </Text>
-              </View>
-            )}
-
-            <View style={styles.cardActions}>
-              <Pressable 
-                style={styles.actionButton}
-                onPress={() => handleUpdateQuantity(medication)}
-              >
-                <Ionicons name="create-outline" size={18} color="#6366F1" />
-                <Text style={styles.actionButtonText}>Update Quantity</Text>
-              </Pressable>
-              
-              <Pressable 
-                style={styles.actionButton}
-                onPress={() => router.push('/(tabs)/medications')}
-              >
-                <Ionicons name="information-circle-outline" size={18} color="#6366F1" />
-                <Text style={styles.actionButtonText}>View Details</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : (
-          <View style={styles.noTrackingSection}>
-            <Text style={styles.noTrackingText}>
-              Inventory tracking not enabled for this medication
-            </Text>
-            <Pressable 
-              style={styles.enableButton}
-              onPress={() => handleOpenEnableModal(medication)}
+        {/* Expiry Info */}
+        {medication.expiry_date && (
+          <View style={styles.expiryInfo}>
+            <Ionicons
+              name={expired ? 'warning' : 'calendar-outline'}
+              size={16}
+              color={expired ? '#EF4444' : daysUntilExpiry && daysUntilExpiry <= 30 ? '#F59E0B' : '#6B7280'}
+            />
+              <Text
+              style={[
+                styles.expiryText,
+                expired ? styles.expiredText : undefined,
+                daysUntilExpiry && daysUntilExpiry <= 30 && !expired ? styles.expiringSoonText : undefined,
+              ]}
             >
-              <LinearGradient
-                colors={['#6366F1', '#8B5CF6']}
-                style={styles.enableButtonGradient}
-              >
-                <Ionicons name="checkmark-circle-outline" size={20} color="white" />
-                <Text style={styles.enableButtonText}>Enable Tracking</Text>
-              </LinearGradient>
-            </Pressable>
+              {expired
+                ? 'EXPIRED'
+                : daysUntilExpiry !== null
+                ? daysUntilExpiry <= 0
+                  ? 'Expires today'
+                  : daysUntilExpiry <= 30
+                  ? `Expires in ${daysUntilExpiry} day${daysUntilExpiry > 1 ? 's' : ''}`
+                  : `Expires ${new Date(medication.expiry_date).toLocaleDateString()}`
+                : 'No expiry date'}
+            </Text>
           </View>
         )}
+
+        {/* Actions */}
+        <View style={styles.cardActions}>
+          {/* ✅ FIX: Update Quantity Button */}
+          <Pressable
+            style={styles.actionButton}
+            onPress={() => openUpdateModal(medication)}
+          >
+            <LinearGradient
+              colors={['#6366F1', '#8B5CF6']}
+              style={styles.actionButtonGradient}
+            >
+              <Ionicons name="add-circle-outline" size={18} color="white" />
+              <Text style={styles.actionButtonText}>Update Quantity</Text>
+            </LinearGradient>
+          </Pressable>
+
+          {medication.current_quantity <= medication.low_stock_threshold && (
+            <Pressable
+              style={styles.actionButton}
+              onPress={() =>
+                Alert.alert(
+                  'Refill Reminder',
+                  `Don't forget to refill ${medication.medication_name}!`,
+                  [
+                    { text: 'Dismiss', style: 'cancel' },
+                    {
+                      text: 'Update Now',
+                      onPress: () => openUpdateModal(medication),
+                    },
+                  ]
+                )
+              }
+            >
+              <LinearGradient
+                colors={['#F59E0B', '#D97706']}
+                style={styles.actionButtonGradient}
+              >
+                <Ionicons name="notifications-outline" size={18} color="white" />
+                <Text style={styles.actionButtonText}>Set Refill Alert</Text>
+              </LinearGradient>
+            </Pressable>
+          )}
+        </View>
       </View>
     );
   };
 
-  if (!CURRENT_USER_ID) return null;
-
-  const lowStockCount = medications.filter(
-    m => m.current_quantity <= m.low_stock_threshold && 
-         m.low_stock_threshold > 0
-  ).length;
-  
-  const expiringCount = medications.filter(m => {
-    if (!m.expiry_date) return false;
-    const days = getDaysUntilExpiry(m.expiry_date);
-    return days >= 0 && days <= 30;
-  }).length;
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={['#667EEA', '#764BA2']} style={styles.header}>
+          <Text style={styles.headerTitle}>Medicine Cabinet</Text>
+          <Text style={styles.headerSubtitle}>Track your medication inventory</Text>
+        </LinearGradient>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -474,147 +384,159 @@ export default function MedicineCabinetScreen() {
         <Text style={styles.headerSubtitle}>Track your medication inventory</Text>
       </LinearGradient>
 
-      <View style={styles.filterContainer}>
-        {renderFilterButton('all', 'All', 'grid', medications.length)}
-        {renderFilterButton('low_stock', 'Low Stock', 'warning', lowStockCount)}
-        {renderFilterButton('expiring', 'Expiring', 'time', expiringCount)}
+      {/* ✅ FIX: Tabs with proper filtering */}
+      <View style={styles.tabContainer}>
+        {renderTabButton('all', 'All', 'grid')}
+        {renderTabButton('low_stock', 'Low Stock', 'warning')}
+        {renderTabButton('expired', 'Expired', 'time')}
       </View>
 
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
+        contentContainerStyle={styles.scrollContent}
       >
-        {medications.length > 0 ? (
-          medications.map(renderMedicationCard)
-        ) : (
+        {filteredMedications.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="medkit-outline" size={64} color="#D1D5DB" />
+            <Ionicons
+              name={
+                activeTab === 'all'
+                  ? 'medkit-outline'
+                  : activeTab === 'low_stock'
+                  ? 'checkmark-circle-outline'
+                  : 'calendar-outline'
+              }
+              size={64}
+              color="#D1D5DB"
+            />
             <Text style={styles.emptyTitle}>
-              {filter === 'all' ? 'No medications in cabinet' :
-               filter === 'low_stock' ? 'No low stock items' :
-               'No expiring medications'}
+              {activeTab === 'all'
+                ? 'No medications tracked'
+                : activeTab === 'low_stock'
+                ? 'No low stock items'
+                : 'No expired medications'}
             </Text>
-            <Text style={styles.emptyText}>
-              {filter === 'all' 
-                ? 'Add medications with inventory tracking enabled'
-                : 'Great! Everything looks good'}
+            <Text style={styles.emptySubtitle}>
+              {activeTab === 'all'
+                ? 'Enable inventory tracking when adding medications'
+                : activeTab === 'low_stock'
+                ? 'All your medications are well stocked!'
+                : 'All your medications are fresh!'}
             </Text>
+          </View>
+        ) : (
+          <View style={styles.medicationsList}>
+            {filteredMedications.map((medication) => renderMedicationCard(medication))}
+          </View>
+        )}
+
+        {/* Summary Stats */}
+        {medications.length > 0 && (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>📊 Cabinet Summary</Text>
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryValue}>{medications.length}</Text>
+                <Text style={styles.summaryLabel}>Total Tracked</Text>
+              </View>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryValue, { color: '#F59E0B' }]}>
+                  {medications.filter(m => m.current_quantity <= m.low_stock_threshold && m.is_active).length}
+                </Text>
+                <Text style={styles.summaryLabel}>Low Stock</Text>
+              </View>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryValue, { color: '#EF4444' }]}>
+                  {medications.filter(m => m.expiry_date && isExpired(m.expiry_date)).length}
+                </Text>
+                <Text style={styles.summaryLabel}>Expired</Text>
+              </View>
+            </View>
           </View>
         )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ✅ NEW: Enable Tracking Modal */}
-      {showEnableModal && selectedMed && (
+      {/* ✅ FIX: Update Quantity Modal */}
+      <Modal
+        visible={showUpdateModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowUpdateModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Enable Inventory Tracking</Text>
-              <Pressable onPress={() => setShowEnableModal(false)}>
+              <Text style={styles.modalTitle}>Update Quantity</Text>
+              <Pressable onPress={() => setShowUpdateModal(false)}>
                 <Ionicons name="close" size={24} color="#6B7280" />
               </Pressable>
             </View>
 
-            <Text style={styles.modalSubtitle}>
-              {selectedMed.medication_name} - {selectedMed.dosage}{selectedMed.dosage_unit}
-            </Text>
-
-            <View style={styles.modalForm}>
-              <View style={styles.inputRow}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Total Quantity</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={totalQuantity}
-                    onChangeText={setTotalQuantity}
-                    keyboardType="numeric"
-                    placeholder="30"
-                  />
+            {selectedMedication && (
+              <>
+                <View style={styles.modalMedInfo}>
+                  <Text style={styles.modalMedName}>{selectedMedication.medication_name}</Text>
+                  <Text style={styles.modalMedDosage}>
+                    Current: {selectedMedication.current_quantity} / {selectedMedication.total_quantity}{' '}
+                    {selectedMedication.dosage_unit}
+                  </Text>
                 </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Current</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={currentQuantity}
-                    onChangeText={setCurrentQuantity}
-                    keyboardType="numeric"
-                    placeholder="30"
-                  />
+
+                <View style={styles.modeSelector}>
+                  <Pressable
+                    style={[styles.modeButton, updateMode === 'add' && styles.modeButtonActive]}
+                    onPress={() => setUpdateMode('add')}
+                  >
+                    <Text style={[styles.modeButtonText, updateMode === 'add' && styles.modeButtonTextActive]}>
+                      Add to Current
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.modeButton, updateMode === 'set' && styles.modeButtonActive]}
+                    onPress={() => setUpdateMode('set')}
+                  >
+                    <Text style={[styles.modeButtonText, updateMode === 'set' && styles.modeButtonTextActive]}>
+                      Set New Amount
+                    </Text>
+                  </Pressable>
                 </View>
-              </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Low Stock Alert (threshold)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={lowStockThreshold}
-                  onChangeText={setLowStockThreshold}
-                  keyboardType="numeric"
-                  placeholder="5"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Start Date</Text>
-                <Pressable 
-                  style={styles.dateButton}
-                  onPress={() => setShowStartDatePicker(true)}
-                >
-                  <Ionicons name="calendar-outline" size={20} color="#6366F1" />
-                  <Text style={styles.dateText}>{startDate.toLocaleDateString()}</Text>
-                </Pressable>
-                {showStartDatePicker && (
-                  <DateTimePicker
-                    value={startDate}
-                    mode="date"
-                    display="default"
-                    onChange={(event, date) => {
-                      setShowStartDatePicker(false);
-                      if (date) setStartDate(date);
-                    }}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>
+                    {updateMode === 'add' ? 'Amount to Add' : 'New Quantity'}
+                  </Text>
+                  <TextInput
+                    style={styles.quantityInput}
+                    value={quantityInput}
+                    onChangeText={setQuantityInput}
+                    placeholder={updateMode === 'add' ? 'e.g., 30' : `Max: ${selectedMedication.total_quantity}`}
+                    keyboardType="numeric"
+                    placeholderTextColor="#9CA3AF"
                   />
-                )}
-              </View>
+                  {updateMode === 'add' && quantityInput && (
+                    <Text style={styles.resultPreview}>
+                      New total: {selectedMedication.current_quantity + parseInt(quantityInput || '0')}{' '}
+                      {selectedMedication.dosage_unit}
+                    </Text>
+                  )}
+                </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Expiry Date</Text>
-                <Pressable 
-                  style={styles.dateButton}
-                  onPress={() => setShowExpiryDatePicker(true)}
-                >
-                  <Ionicons name="warning-outline" size={20} color="#F59E0B" />
-                  <Text style={styles.dateText}>{expiryDate.toLocaleDateString()}</Text>
+                <Pressable style={styles.updateButton} onPress={handleUpdateQuantity}>
+                  <LinearGradient colors={['#10B981', '#059669']} style={styles.updateButtonGradient}>
+                    <Ionicons name="checkmark-circle" size={20} color="white" />
+                    <Text style={styles.updateButtonText}>Update Quantity</Text>
+                  </LinearGradient>
                 </Pressable>
-                {showExpiryDatePicker && (
-                  <DateTimePicker
-                    value={expiryDate}
-                    mode="date"
-                    display="default"
-                    minimumDate={new Date()}
-                    onChange={(event, date) => {
-                      setShowExpiryDatePicker(false);
-                      if (date) setExpiryDate(date);
-                    }}
-                  />
-                )}
-              </View>
-            </View>
-
-            <Pressable style={styles.saveButton} onPress={handleEnableTracking}>
-              <LinearGradient
-                colors={['#10B981', '#059669']}
-                style={styles.saveButtonGradient}
-              >
-                <Text style={styles.saveButtonText}>Enable Tracking</Text>
-              </LinearGradient>
-            </Pressable>
+              </>
+            )}
           </View>
         </View>
-      )}
+      </Modal>
     </View>
   );
 }
@@ -633,81 +555,91 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: 'white',
+    marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
+    color: 'rgba(255,255,255,0.9)',
   },
-  filterContainer: {
+  tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     gap: 8,
   },
-  filterButton: {
+  tabButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: '#F9FAFB',
-    gap: 4,
+    gap: 6,
+    position: 'relative',
   },
-  filterButtonActive: {
+  tabButtonActive: {
     backgroundColor: '#EEF2FF',
   },
-  filterText: {
+  tabText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
   },
-  filterTextActive: {
+  tabTextActive: {
     color: '#6366F1',
   },
   badge: {
-    backgroundColor: '#E5E7EB',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#F59E0B',
     borderRadius: 10,
     minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
     alignItems: 'center',
-  },
-  badgeActive: {
-    backgroundColor: '#6366F1',
+    paddingHorizontal: 6,
   },
   badgeText: {
+    color: 'white',
     fontSize: 11,
     fontWeight: '700',
-    color: '#6B7280',
-  },
-  badgeTextActive: {
-    color: 'white',
   },
   content: {
     flex: 1,
-    paddingTop: 16,
   },
-  card: {
+  scrollContent: {
+    padding: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  medicationsList: {
+    gap: 16,
+  },
+  medicationCard: {
     backgroundColor: 'white',
-    marginHorizontal: 16,
-    marginBottom: 16,
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   medicationInfo: {
     flex: 1,
@@ -718,71 +650,59 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 4,
   },
-  dosageInfo: {
+  medicationDosage: {
     fontSize: 14,
     color: '#6B7280',
   },
-  progressSection: {
-    marginBottom: 16,
-  },
-  quantityRow: {
+  statusBadge: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
   },
-  quantityLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
+  statusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  quantityValue: {
-    fontSize: 14,
-    color: '#1F2937',
-    fontWeight: '700',
+  progressContainer: {
+    marginBottom: 12,
   },
-  progressBar: {
+  progressBackground: {
     height: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#E5E7EB',
     borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   progressFill: {
     height: '100%',
     borderRadius: 4,
   },
-  statusText: {
-    fontSize: 13,
+  progressText: {
+    fontSize: 14,
+    color: '#6B7280',
     fontWeight: '600',
   },
-  expirySection: {
+  expiryInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    marginBottom: 16,
-    gap: 8,
-  },
-  expirySectionUrgent: {
-    backgroundColor: '#FEF3C7',
+    gap: 6,
+    marginBottom: 12,
   },
   expiryText: {
     fontSize: 13,
-    fontWeight: '500',
-    flex: 1,
-  },
-  noTrackingSection: {
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    gap: 12,
-  },
-  noTrackingText: {
-    fontSize: 14,
     color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 8,
+  },
+  expiredText: {
+    color: '#EF4444',
+    fontWeight: '700',
+  },
+  expiringSoonText: {
+    color: '#F59E0B',
+    fontWeight: '600',
   },
   cardActions: {
     flexDirection: 'row',
@@ -790,97 +710,138 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#EEF2FF',
     borderRadius: 8,
+    overflow: 'hidden',
+  },
+  actionButtonGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
     gap: 6,
   },
   actionButtonText: {
+    color: 'white',
     fontSize: 13,
     fontWeight: '600',
-    color: '#6366F1',
-  },
-  enableButton: {
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  enableButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
-  },
-  enableButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: 'white',
   },
   emptyState: {
     alignItems: 'center',
-    padding: 40,
-    marginTop: 60,
+    paddingVertical: 60,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
     marginTop: 16,
     marginBottom: 8,
   },
-  emptyText: {
+  emptySubtitle: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#6B7280',
     textAlign: 'center',
+    paddingHorizontal: 40,
   },
-  // Modal styles
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  summaryCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
     padding: 20,
+    marginTop: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  summaryItem: {
+    alignItems: 'center',
+  },
+  summaryValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#6366F1',
+    marginBottom: 4,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 24,
-    width: '100%',
-    maxWidth: 400,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 20,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     color: '#1F2937',
   },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+  modalMedInfo: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 12,
     marginBottom: 20,
   },
-  modalForm: {
-    gap: 16,
+  modalMedName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
   },
-  inputRow: {
+  modalMedDosage: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  modeSelector: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
+    marginBottom: 20,
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: '#6366F1',
+  },
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  modeButtonTextActive: {
+    color: 'white',
   },
   inputGroup: {
-    flex: 1,
+    marginBottom: 20,
   },
   inputLabel: {
     fontSize: 14,
@@ -888,39 +849,35 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 8,
   },
-  textInput: {
+  quantityInput: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
-    color: '#1F2937',
+    backgroundColor: 'white',
+    color: '#374151',
   },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    gap: 8,
+  resultPreview: {
+    fontSize: 13,
+    color: '#6366F1',
+    marginTop: 6,
+    fontWeight: '600',
   },
-  dateText: {
-    fontSize: 16,
-    color: '#1F2937',
-  },
-  saveButton: {
-    marginTop: 20,
+  updateButton: {
     borderRadius: 12,
     overflow: 'hidden',
   },
-  saveButtonGradient: {
-    paddingVertical: 14,
+  updateButtonGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
+    gap: 8,
   },
-  saveButtonText: {
+  updateButtonText: {
+    color: 'white',
     fontSize: 16,
     fontWeight: '700',
-    color: 'white',
   },
 });

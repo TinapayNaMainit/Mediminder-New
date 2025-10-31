@@ -1,4 +1,4 @@
-// services/smartReminderService.ts - NEW Smart Reminder System
+// services/smartReminderService.ts - UPDATED for new frequency system
 import * as Notifications from 'expo-notifications';
 import { supabase } from './supabaseClient';
 
@@ -9,48 +9,50 @@ interface FrequencySchedule {
 }
 
 export const smartReminderService = {
-  // ✅ Get auto-scheduled times based on frequency
-  getScheduleForFrequency(frequency: string): FrequencySchedule {
+  // ✅ UPDATED: Changed to match new frequency options
+  getScheduleForFrequency(frequency: string, startTime?: string): FrequencySchedule {
     const schedules: { [key: string]: FrequencySchedule } = {
-      'Once daily': {
-        times: ['08:00'],
-        timesPerDay: 1,
-        interval: 24
-      },
-      'Twice daily': {
-        times: ['08:00', '20:00'],
-        timesPerDay: 2,
-        interval: 12
-      },
-      'Three times daily': {
-        times: ['08:00', '14:00', '20:00'],
-        timesPerDay: 3,
-        interval: 8
-      },
-      'Four times daily': {
-        times: ['08:00', '14:00', '20:00', '02:00'],
-        timesPerDay: 4,
-        interval: 6
-      },
+      // ✅ NEW: Updated frequency options
       'Every 4 hours': {
-        times: ['08:00', '12:00', '16:00', '20:00', '00:00', '04:00'],
+        times: this.calculateTimesFromStart(startTime || '08:00', 4, 6),
         timesPerDay: 6,
         interval: 4
       },
       'Every 6 hours': {
-        times: ['08:00', '14:00', '20:00', '02:00'],
+        times: this.calculateTimesFromStart(startTime || '08:00', 6, 4),
         timesPerDay: 4,
         interval: 6
       },
       'Every 8 hours': {
-        times: ['08:00', '16:00', '00:00'],
+        times: this.calculateTimesFromStart(startTime || '08:00', 8, 3),
         timesPerDay: 3,
         interval: 8
       },
       'Every 12 hours': {
-        times: ['08:00', '20:00'],
+        times: this.calculateTimesFromStart(startTime || '08:00', 12, 2),
         timesPerDay: 2,
         interval: 12
+      },
+      // Keep legacy options for backward compatibility
+      'Once daily': {
+        times: [startTime || '08:00'],
+        timesPerDay: 1,
+        interval: 24
+      },
+      'Twice daily': {
+        times: this.calculateTimesFromStart(startTime || '08:00', 12, 2),
+        timesPerDay: 2,
+        interval: 12
+      },
+      'Three times daily': {
+        times: this.calculateTimesFromStart(startTime || '08:00', 8, 3),
+        timesPerDay: 3,
+        interval: 8
+      },
+      'Four times daily': {
+        times: this.calculateTimesFromStart(startTime || '08:00', 6, 4),
+        timesPerDay: 4,
+        interval: 6
       },
       'Before meals': {
         times: ['07:30', '12:00', '18:00'],
@@ -73,13 +75,37 @@ export const smartReminderService = {
         interval: 0
       },
       'Weekly': {
-        times: ['08:00'],
+        times: [startTime || '08:00'],
         timesPerDay: 0,
         interval: 168
       },
+      'Custom': {
+        times: [startTime || '08:00'],
+        timesPerDay: 1,
+        interval: 0
+      }
     };
 
-    return schedules[frequency] || schedules['Once daily'];
+    return schedules[frequency] || {
+      times: [startTime || '08:00'],
+      timesPerDay: 1,
+      interval: 24
+    };
+  },
+
+  // ✅ NEW: Calculate reminder times based on start time and interval
+  calculateTimesFromStart(startTime: string, intervalHours: number, count: number): string[] {
+    const times: string[] = [];
+    const [startHour, startMinute] = startTime.split(':').map(Number);
+    
+    for (let i = 0; i < count; i++) {
+      const totalMinutes = (startHour * 60 + startMinute) + (i * intervalHours * 60);
+      const hour = Math.floor(totalMinutes / 60) % 24;
+      const minute = totalMinutes % 60;
+      times.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    }
+    
+    return times;
   },
 
   // ✅ Calculate reminder time with advance notification
@@ -100,7 +126,7 @@ export const smartReminderService = {
     return { hour, minute };
   },
 
-  // ✅ Schedule all notifications for a medication
+  // ✅ UPDATED: Schedule all notifications with start time support
   async scheduleSmartReminders(
     medicationId: string,
     medicationName: string,
@@ -108,14 +134,17 @@ export const smartReminderService = {
     dosageUnit: string,
     frequency: string,
     advanceMinutes: number,
-    notes?: string
+    notes?: string,
+    startTime?: string // ✅ NEW: Accept start time parameter
   ): Promise<string[]> {
     try {
-      const schedule = this.getScheduleForFrequency(frequency);
+      // ✅ Get schedule with start time
+      const schedule = this.getScheduleForFrequency(frequency, startTime);
       const notificationIds: string[] = [];
 
       console.log(`📅 Smart scheduling for ${medicationName}`);
       console.log(`   Frequency: ${frequency}`);
+      console.log(`   Start time: ${startTime || 'default'}`);
       console.log(`   Times: ${schedule.times.join(', ')}`);
       console.log(`   Advance warning: ${advanceMinutes} minutes`);
 
@@ -145,7 +174,7 @@ export const smartReminderService = {
           vibrate: [0, 250, 250, 250],
         };
 
-         // Handle weekly frequency differently
+        // Handle weekly frequency differently
         if (frequency === 'Weekly') {
           const trigger: Notifications.NotificationTriggerInput = {
             type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
@@ -189,9 +218,9 @@ export const smartReminderService = {
     }
   },
 
-  // ✅ Get human-readable schedule description
-  getScheduleDescription(frequency: string, advanceMinutes: number): string {
-    const schedule = this.getScheduleForFrequency(frequency);
+  // ✅ UPDATED: Get human-readable schedule description with start time
+  getScheduleDescription(frequency: string, advanceMinutes: number, startTime?: string): string {
+    const schedule = this.getScheduleForFrequency(frequency, startTime);
     
     if (schedule.times.length === 0) {
       return 'Take as needed (no scheduled reminders)';
@@ -212,8 +241,8 @@ export const smartReminderService = {
   },
 
   // ✅ Get next dose time
-  getNextDoseTime(frequency: string): string {
-    const schedule = this.getScheduleForFrequency(frequency);
+  getNextDoseTime(frequency: string, startTime?: string): string {
+    const schedule = this.getScheduleForFrequency(frequency, startTime);
     
     if (schedule.times.length === 0) return 'As needed';
 
@@ -243,13 +272,14 @@ export const smartReminderService = {
   async updateMedicationSchedule(
     medicationId: string,
     frequency: string,
-    advanceMinutes: number
+    advanceMinutes: number,
+    startTime?: string // ✅ NEW: Support start time
   ): Promise<void> {
     try {
-      const schedule = this.getScheduleForFrequency(frequency);
+      const schedule = this.getScheduleForFrequency(frequency, startTime);
       
       // Store the first scheduled time as primary reminder_time for compatibility
-      const primaryTime = schedule.times[0] || '08:00';
+      const primaryTime = schedule.times[0] || startTime || '08:00';
       const { hour, minute } = this.calculateReminderTime(primaryTime, advanceMinutes);
       const formattedTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
 
@@ -267,5 +297,34 @@ export const smartReminderService = {
       console.error('❌ Error updating medication schedule:', error);
       throw error;
     }
+  },
+
+  // ✅ NEW: Helper to format time for display
+  formatTimeDisplay(time: string): string {
+    const [hour, minute] = time.split(':').map(Number);
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    const period = hour >= 12 ? 'PM' : 'AM';
+    return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`;
+  },
+
+  // ✅ NEW: Validate frequency string
+  isValidFrequency(frequency: string): boolean {
+    const validFrequencies = [
+      'Every 4 hours',
+      'Every 6 hours',
+      'Every 8 hours',
+      'Every 12 hours',
+      'Once daily',
+      'Twice daily',
+      'Three times daily',
+      'Four times daily',
+      'Before meals',
+      'After meals',
+      'Bedtime',
+      'As needed',
+      'Weekly',
+      'Custom'
+    ];
+    return validFrequencies.includes(frequency);
   }
 };

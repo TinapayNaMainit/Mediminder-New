@@ -1,4 +1,4 @@
-// app/(tabs)/profile.tsx - PRODUCTION READY
+// app/(tabs)/profile.tsx - FIXED with FAQ and proper scrolling
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -23,6 +23,60 @@ import EditProfileModal from '../../components/EditProfileModal';
 import QRCodeGenerator from '../../components/QRCodeGenerator';
 import QRCodeScanner from '../../components/QRCodeScanner';
 
+// ✅ FAQ Data
+const FAQ_DATA = [
+  {
+    id: '1',
+    question: 'How do I add a medication?',
+    answer: 'Tap the "+" button on the Medications screen. Fill in the medication name, dosage, frequency, and set your reminder time. You can also add notes and track inventory.'
+  },
+  {
+    id: '2',
+    question: 'What do the different frequencies mean?',
+    answer: 'Every 4 hours = 6 times daily\nEvery 6 hours = 4 times daily\nEvery 8 hours = 3 times daily\nEvery 12 hours = 2 times daily\n\nReminders are calculated from your start time.'
+  },
+  {
+    id: '3',
+    question: 'How does inventory tracking work?',
+    answer: 'Enable inventory tracking when adding a medication. Enter your total quantity and current amount. The app will automatically decrease the count when you mark medication as taken and alert you when running low.'
+  },
+  {
+    id: '4',
+    question: 'What happens if I miss a dose?',
+    answer: 'If you miss a dose by more than 1 hour, it will be automatically marked as missed. You\'ll receive a notification asking if you want to adjust your next reminder time.'
+  },
+  {
+    id: '5',
+    question: 'How do I connect with a caregiver?',
+    answer: 'Patients: Go to Profile → Share My QR Code\nCaregivers: Go to Profile → Scan Patient QR Code\n\nOnce connected, caregivers can help manage the patient\'s medications.'
+  },
+  {
+    id: '6',
+    question: 'Can I change my role after selection?',
+    answer: 'Yes, go to Profile → Change Role. Note: This will disconnect all current caregiver connections and you\'ll need to sign in again.'
+  },
+  {
+    id: '7',
+    question: 'What does the AI Companion do?',
+    answer: 'MedCompanion is your AI health assistant powered by Google Gemini. It can answer questions about your medications, side effects, adherence tips, and general health queries. Tap the floating chat icon on the home screen.'
+  },
+  {
+    id: '8',
+    question: 'How do I dispose of expired medications?',
+    answer: 'Go to Safety tab to see expired medications. Tap "Disposal Guide" for safe disposal instructions. Never flush medications or throw them in regular trash.'
+  },
+  {
+    id: '9',
+    question: 'Why am I not receiving notifications?',
+    answer: 'Check: 1) Notification permissions are enabled in Settings\n2) Battery optimization is disabled for MediMinder\n3) Do Not Disturb is off\n4) Medication is marked as "Active"'
+  },
+  {
+    id: '10',
+    question: 'How is my streak calculated?',
+    answer: 'Your streak counts consecutive days where you took ALL your active medications. Missing even one medication breaks the streak.'
+  }
+];
+
 export default function ProfileScreen() {
   const { signOut, user } = useAuth();
   const { profile, refreshProfile } = useProfile();
@@ -35,6 +89,7 @@ export default function ProfileScreen() {
   const [aiCompanionEnabled, setAiCompanionEnabled] = useState(true);
   const [connections, setConnections] = useState<CaregiverConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedFAQ, setExpandedFAQ] = useState<string | null>(null);
 
   useEffect(() => {
     notificationService.updateSettings({
@@ -208,6 +263,10 @@ export default function ProfileScreen() {
     );
   };
 
+  const toggleFAQ = (id: string) => {
+    setExpandedFAQ(expandedFAQ === id ? null : id);
+  };
+
   const displayName = profile?.display_name || 'Loading...';
   const initials = profile ? profileService.getInitials(displayName) : 'U';
   const avatarColor = profile ? profileService.getAvatarColor(displayName) : '#667EEA';
@@ -305,6 +364,7 @@ export default function ProfileScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
+        contentContainerStyle={styles.scrollContent}
       >
         {/* AI Companion Section */}
         <View style={styles.section}>
@@ -439,21 +499,49 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Support Section */}
+        {/* ✅ FAQ Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>❓ FAQ - Frequently Asked Questions</Text>
+          <View style={styles.settingsGroup}>
+            {FAQ_DATA.map((faq) => (
+              <View key={faq.id} style={styles.faqItem}>
+                <Pressable
+                  style={styles.faqQuestion}
+                  onPress={() => toggleFAQ(faq.id)}
+                >
+                  <View style={styles.faqQuestionContent}>
+                    <Ionicons 
+                      name="help-circle" 
+                      size={20} 
+                      color="#6366F1" 
+                      style={styles.faqIcon}
+                    />
+                    <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                  </View>
+                  <Ionicons 
+                    name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
+                    size={20} 
+                    color="#9CA3AF" 
+                  />
+                </Pressable>
+                {expandedFAQ === faq.id && (
+                  <View style={styles.faqAnswer}>
+                    <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Contact Support */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
           <View style={styles.settingsGroup}>
             <SettingItem
-              title="Help Center"
-              subtitle="Get help and find answers"
-              onPress={() => Alert.alert('Help Center', 'Feature coming soon!')}
-              showArrow
-              icon="help-circle"
-            />
-            <SettingItem
               title="Contact Support"
               subtitle="Get in touch with our team"
-              onPress={() => Alert.alert('Contact Support', 'Feature coming soon!')}
+              onPress={() => Alert.alert('Contact Support', 'Email: support@mediminder.app\nPhone: +1-800-MEDIMINDER')}
               showArrow
               icon="mail"
             />
@@ -487,9 +575,12 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Mediminder v1.2.0</Text>
+          <Text style={styles.footerText}>Mediminder v1.2.5</Text>
           <Text style={styles.footerSubtext}>With AI Companion by Google Gemini</Text>
         </View>
+
+        {/* ✅ Extra padding for tab bar */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <EditProfileModal
@@ -602,7 +693,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  scrollContent: {
     paddingTop: 20,
+    paddingBottom: 20,
   },
   section: {
     marginBottom: 32,
@@ -731,6 +825,42 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
     lineHeight: 20,
+  },
+  // ✅ FAQ Styles
+  faqItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  faqQuestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  faqQuestionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  faqIcon: {
+    marginRight: 12,
+  },
+  faqQuestionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    flex: 1,
+  },
+  faqAnswer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingLeft: 64,
+  },
+  faqAnswerText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 22,
   },
   signOutButton: {
     margin: 16,

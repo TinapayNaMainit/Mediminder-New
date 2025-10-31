@@ -1,4 +1,4 @@
-// app/modal.tsx - FIXED with all missing state variables and imports
+// app/modal.tsx - FIXED ALL ISSUES
 import React, { useState } from 'react';
 import {
   View,
@@ -29,11 +29,13 @@ interface MedicationToAdd {
   unit: string;
   frequency: string;
   notes: string;
-  // Individual inventory tracking per medication
+  // ✅ FIX 5 & 6: Individual inventory and expiry per medication
   totalQuantity: string;
   currentQuantity: string;
   lowStockThreshold: string;
   expiryDate: Date;
+  // ✅ FIX 3: Track start time per medication
+  startTime: Date;
 }
 
 export default function BulkAddMedicationModal() {
@@ -43,39 +45,35 @@ export default function BulkAddMedicationModal() {
   const [activeTab, setActiveTab] = useState<TabType>('basic');
   const [loading, setLoading] = useState(false);
 
-  // Each medication has its own inventory settings
+  // ✅ FIX 3: Initialize with current time instead of fixed time
+  const getCurrentTime = () => new Date();
+
   const [medications, setMedications] = useState<MedicationToAdd[]>([
     {
       id: '1',
       name: '',
       dosage: '',
       unit: 'mg',
-      frequency: 'Every 4 hours',
+      frequency: 'Every 8 hours', // ✅ FIX 2: New default
       notes: '',
-      totalQuantity: '30',
-      currentQuantity: '30',
+      totalQuantity: '', // ✅ FIX 5: Empty by default
+      currentQuantity: '', // ✅ FIX 5: Empty by default
       lowStockThreshold: '5',
-      expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // ✅ FIX 6: Per medication
+      startTime: getCurrentTime(), // ✅ FIX 3: Current time
     }
   ]);
 
-  // Shared settings (apply to all medications)
+  // Shared settings
   const [advanceMinutes, setAdvanceMinutes] = useState(5);
-  const [startDate, setStartDate] = useState(new Date());
   const [allergies, setAllergies] = useState('');
   const [checkInteractions, setCheckInteractions] = useState(true);
-
-  // ✅ MISSING STATE VARIABLES - ADDED
-  const [trackInventory, setTrackInventory] = useState(false);
-  const [totalQuantity, setTotalQuantity] = useState('30');
-  const [currentQuantity, setCurrentQuantity] = useState('30');
-  const [lowStockThreshold, setLowStockThreshold] = useState('5');
-  const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
-  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState(false);
-  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showExpiryDatePicker, setShowExpiryDatePicker] = useState<string | null>(null);
+  const [showStartTimePicker, setShowStartTimePicker] = useState<string | null>(null);
 
   const dosageUnits = ['mg', 'g', 'mcg', 'ml', 'tablets', 'capsules', 'drops', 'puffs'];
   
+  // ✅ FIX 2: Updated frequency options
   const frequencies = [
     { label: 'Every 4hrs', value: 'Every 4 hours', icon: '⏰' },
     { label: 'Every 6hrs', value: 'Every 6 hours', icon: '⏰' },
@@ -93,7 +91,7 @@ export default function BulkAddMedicationModal() {
     { label: '30 min', value: 30, icon: '🔔' },
   ];
 
-  // Add another medication
+  // ✅ FIX 4: Add medication function
   const addMedication = () => {
     const newId = (medications.length + 1).toString();
     setMedications([...medications, {
@@ -101,16 +99,16 @@ export default function BulkAddMedicationModal() {
       name: '',
       dosage: '',
       unit: 'mg',
-      frequency: 'Every 4 hours',
+      frequency: 'Every 8 hours',
       notes: '',
-      totalQuantity: '30',
-      currentQuantity: '30',
+      totalQuantity: '',
+      currentQuantity: '',
       lowStockThreshold: '5',
       expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      startTime: getCurrentTime(), // ✅ FIX 3: Current time for new meds
     }]);
   };
 
-  // Remove medication
   const removeMedication = (id: string) => {
     if (medications.length === 1) {
       Alert.alert('Notice', 'You must have at least one medication');
@@ -119,7 +117,6 @@ export default function BulkAddMedicationModal() {
     setMedications(medications.filter(m => m.id !== id));
   };
 
-  // Update specific medication
   const updateMedication = (id: string, updates: Partial<MedicationToAdd>) => {
     setMedications(medications.map(m => m.id === id ? { ...m, ...updates } : m));
   };
@@ -131,6 +128,22 @@ export default function BulkAddMedicationModal() {
         Alert.alert('Error', `Please fill in name and dosage for all medications`);
         return;
       }
+
+      // ✅ FIX 5: Validate quantities if provided
+      if (med.totalQuantity || med.currentQuantity) {
+        const totalQty = parseInt(med.totalQuantity);
+        const currentQty = parseInt(med.currentQuantity);
+
+        if (isNaN(totalQty) || isNaN(currentQty)) {
+          Alert.alert('Error', `Please enter valid quantities for ${med.name}`);
+          return;
+        }
+
+        if (currentQty > totalQty) {
+          Alert.alert('Error', `Current quantity cannot exceed total quantity for ${med.name}`);
+          return;
+        }
+      }
     }
 
     if (!CURRENT_USER_ID) {
@@ -141,7 +154,7 @@ export default function BulkAddMedicationModal() {
     setLoading(true);
 
     try {
-      // Check allergies for all medications
+      // Check allergies
       for (const med of medications) {
         const hasAllergy = await safetyService.checkAllergies(CURRENT_USER_ID, med.name);
         if (hasAllergy) {
@@ -169,33 +182,22 @@ export default function BulkAddMedicationModal() {
         return;
       }
 
-      // Validate inventory if enabled
-      if (trackInventory) {
-        const totalQty = parseInt(totalQuantity);
-        const currentQty = parseInt(currentQuantity);
-        const threshold = parseInt(lowStockThreshold);
-
-        if (isNaN(totalQty) || isNaN(currentQty) || isNaN(threshold)) {
-          Alert.alert('Error', 'Please enter valid numbers for quantities');
-          setLoading(false);
-          return;
-        }
-
-        if (currentQty > totalQty) {
-          Alert.alert('Error', 'Current quantity cannot exceed total quantity');
-          setLoading(false);
-          return;
-        }
-      }
-
       let successCount = 0;
       const errors: string[] = [];
 
       // Save each medication
       for (const med of medications) {
         try {
-          const schedule = smartReminderService.getScheduleForFrequency(med.frequency);
-          const primaryTime = schedule.times[0] || '08:00';
+          // ✅ FIX 3: Use medication's start time
+          const startHour = med.startTime.getHours();
+          const startMinute = med.startTime.getMinutes();
+          const startTimeStr = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`;
+          
+          // Get schedule with start time
+          const schedule = smartReminderService.getScheduleForFrequency(med.frequency, startTimeStr);
+          
+          // Use first scheduled time
+          const primaryTime = schedule.times[0] || startTimeStr;
           const { hour, minute } = smartReminderService.calculateReminderTime(primaryTime, advanceMinutes);
           const formattedTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
 
@@ -211,14 +213,15 @@ export default function BulkAddMedicationModal() {
             is_active: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            start_date: startDate.toISOString().split('T')[0],
-            expiry_date: expiryDate.toISOString().split('T')[0],
+            start_date: med.startTime.toISOString().split('T')[0], // ✅ FIX 3: Use start time
+            expiry_date: med.expiryDate.toISOString().split('T')[0], // ✅ FIX 6: Per medication
           };
 
-          if (trackInventory) {
-            medicationData.total_quantity = parseInt(totalQuantity);
-            medicationData.current_quantity = parseInt(currentQuantity);
-            medicationData.low_stock_threshold = parseInt(lowStockThreshold);
+          // ✅ FIX 5: Only add quantities if provided
+          if (med.totalQuantity && med.currentQuantity) {
+            medicationData.total_quantity = parseInt(med.totalQuantity);
+            medicationData.current_quantity = parseInt(med.currentQuantity);
+            medicationData.low_stock_threshold = parseInt(med.lowStockThreshold);
           } else {
             medicationData.total_quantity = 0;
             medicationData.current_quantity = 0;
@@ -338,7 +341,6 @@ export default function BulkAddMedicationModal() {
       >
         {activeTab === 'basic' && (
           <View style={styles.section}>
-            {/* RENDER EACH MEDICATION */}
             {medications.map((med, index) => (
               <View key={med.id} style={styles.medicationBlock}>
                 {medications.length > 1 && (
@@ -364,6 +366,7 @@ export default function BulkAddMedicationModal() {
 
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 2, marginRight: 8 }]}>
+                    {/* ✅ FIX 1: Dynamic dosage label */}
                     <Text style={styles.label}>
                       {med.name.trim() ? `Dosage for ${med.name} *` : 'Dosage *'}
                     </Text>
@@ -394,6 +397,7 @@ export default function BulkAddMedicationModal() {
                   </View>
                 </View>
 
+                {/* ✅ FIX 2: Updated frequency options */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>How often? *</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -410,6 +414,40 @@ export default function BulkAddMedicationModal() {
                       </Pressable>
                     ))}
                   </ScrollView>
+                </View>
+
+                {/* ✅ FIX 3: Start time picker per medication */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Start Time *</Text>
+                  <Pressable
+                    style={styles.timeButton}
+                    onPress={() => setShowStartTimePicker(med.id)}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#6366F1" />
+                    <Text style={styles.timeText}>
+                      {med.startTime.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </Text>
+                  </Pressable>
+                  {showStartTimePicker === med.id && (
+                    <DateTimePicker
+                      value={med.startTime}
+                      mode="time"
+                      display="default"
+                      onChange={(event, date) => {
+                        setShowStartTimePicker(null);
+                        if (date) {
+                          updateMedication(med.id, { startTime: date });
+                        }
+                      }}
+                    />
+                  )}
+                  <Text style={styles.helperText}>
+                    Medication tracking will start from this time
+                  </Text>
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -430,7 +468,7 @@ export default function BulkAddMedicationModal() {
               </View>
             ))}
 
-            {/* SHARED REMINDER SETTINGS */}
+            {/* Shared Reminder Settings */}
             <View style={styles.sharedSection}>
               <Text style={styles.sharedSectionTitle}>⏰ Reminder Settings (applies to all)</Text>
               
@@ -468,68 +506,65 @@ export default function BulkAddMedicationModal() {
 
         {activeTab === 'inventory' && (
           <View style={styles.section}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Expiry Date *</Text>
-              <Pressable
-                style={styles.dateButton}
-                onPress={() => setShowExpiryDatePicker(true)}
-              >
-                <Ionicons name="warning-outline" size={20} color="#F59E0B" />
-                <Text style={styles.dateText}>{expiryDate.toLocaleDateString()}</Text>
-              </Pressable>
-              {showExpiryDatePicker && (
-                <DateTimePicker
-                  value={expiryDate}
-                  mode="date"
-                  display="default"
-                  minimumDate={new Date()}
-                  onChange={(event, date) => {
-                    setShowExpiryDatePicker(false);
-                    if (date) setExpiryDate(date);
-                  }}
-                />
-              )}
-            </View>
+            <Text style={styles.sectionTitle}>📦 Inventory Tracking (Optional)</Text>
+            <Text style={styles.sectionSubtitle}>
+              Track pill counts and get refill alerts. Leave blank to skip.
+            </Text>
 
-            {/* FIXED: Centered Toggle */}
-            <View style={styles.toggleSection}>
-              <View style={styles.toggleContent}>
-                <View style={styles.toggleTextContainer}>
-                  <Text style={styles.toggleTitle}>Track Inventory</Text>
-                  <Text style={styles.toggleDescription}>
-                    Monitor pill count and get refill alerts
-                  </Text>
+            {medications.map((med, index) => (
+              <View key={med.id} style={styles.inventoryBlock}>
+                <Text style={styles.inventoryMedName}>
+                  {med.name || `Medication #${index + 1}`}
+                </Text>
+
+                {/* ✅ FIX 6: Expiry date per medication */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Expiry Date</Text>
+                  <Pressable
+                    style={styles.dateButton}
+                    onPress={() => setShowExpiryDatePicker(med.id)}
+                  >
+                    <Ionicons name="warning-outline" size={20} color="#F59E0B" />
+                    <Text style={styles.dateText}>
+                      {med.expiryDate.toLocaleDateString()}
+                    </Text>
+                  </Pressable>
+                  {showExpiryDatePicker === med.id && (
+                    <DateTimePicker
+                      value={med.expiryDate}
+                      mode="date"
+                      display="default"
+                      minimumDate={new Date()}
+                      onChange={(event, date) => {
+                        setShowExpiryDatePicker(null);
+                        if (date) {
+                          updateMedication(med.id, { expiryDate: date });
+                        }
+                      }}
+                    />
+                  )}
                 </View>
-                <Switch
-                  value={trackInventory}
-                  onValueChange={setTrackInventory}
-                  trackColor={{ false: '#D1D5DB', true: '#6366F1' }}
-                  thumbColor="white"
-                />
-              </View>
-            </View>
 
-            {trackInventory && (
-              <>
+                {/* ✅ FIX 5: Editable quantities per medication */}
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.label}>Total Quantity *</Text>
+                    <Text style={styles.label}>Total Quantity</Text>
                     <TextInput
                       style={styles.input}
-                      value={totalQuantity}
-                      onChangeText={setTotalQuantity}
-                      placeholder="30"
+                      value={med.totalQuantity}
+                      onChangeText={(text) => updateMedication(med.id, { totalQuantity: text })}
+                      placeholder="e.g., 30"
                       keyboardType="numeric"
                       placeholderTextColor="#9CA3AF"
                     />
                   </View>
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Current *</Text>
+                    <Text style={styles.label}>Current</Text>
                     <TextInput
                       style={styles.input}
-                      value={currentQuantity}
-                      onChangeText={setCurrentQuantity}
-                      placeholder="30"
+                      value={med.currentQuantity}
+                      onChangeText={(text) => updateMedication(med.id, { currentQuantity: text })}
+                      placeholder="e.g., 30"
                       keyboardType="numeric"
                       placeholderTextColor="#9CA3AF"
                     />
@@ -540,22 +575,24 @@ export default function BulkAddMedicationModal() {
                   <Text style={styles.label}>Low Stock Alert Threshold</Text>
                   <TextInput
                     style={styles.input}
-                    value={lowStockThreshold}
-                    onChangeText={setLowStockThreshold}
+                    value={med.lowStockThreshold}
+                    onChangeText={(text) => updateMedication(med.id, { lowStockThreshold: text })}
                     placeholder="5"
                     keyboardType="numeric"
                     placeholderTextColor="#9CA3AF"
                   />
                   <Text style={styles.helperText}>
-                    Alert when {lowStockThreshold || '0'} or fewer pills remaining
+                    Alert when {med.lowStockThreshold || '0'} or fewer remaining
                   </Text>
                 </View>
 
-                <Text style={styles.note}>
-                  📦 Inventory settings apply to all medications above
-                </Text>
-              </>
-            )}
+                {index < medications.length - 1 && <View style={styles.divider} />}
+              </View>
+            ))}
+
+            <Text style={styles.note}>
+              💡 Leave quantities blank if you don't want to track inventory
+            </Text>
           </View>
         )}
 
@@ -580,7 +617,6 @@ export default function BulkAddMedicationModal() {
               </Text>
             </View>
 
-            {/* FIXED: Centered Toggle */}
             <View style={styles.toggleSection}>
               <View style={styles.toggleContent}>
                 <View style={styles.toggleTextContainer}>
@@ -642,9 +678,12 @@ export default function BulkAddMedicationModal() {
             )}
           </LinearGradient>
         </Pressable>
+
+        {/* Extra padding for FAB */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* FAB Button (always visible) */}
+      {/* ✅ FIX 4: FAB always visible */}
       <Pressable style={styles.fab} onPress={addMedication}>
         <LinearGradient
           colors={['#6366F1', '#8B5CF6']}
@@ -671,7 +710,8 @@ const styles = StyleSheet.create({
   form: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
   section: { padding: 20, backgroundColor: 'white', marginBottom: 12 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 8 },
+  sectionSubtitle: { fontSize: 14, color: '#6B7280', marginBottom: 16, lineHeight: 20 },
   
   medicationBlock: { marginBottom: 24 },
   medicationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: '#6366F1' },
@@ -681,6 +721,9 @@ const styles = StyleSheet.create({
   
   sharedSection: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, marginTop: 8 },
   sharedSectionTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
+  
+  inventoryBlock: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, marginBottom: 16 },
+  inventoryMedName: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
   
   inputGroup: { marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
@@ -706,18 +749,18 @@ const styles = StyleSheet.create({
   scheduleText: { fontSize: 13, color: '#4F46E5' },
   notesInput: { minHeight: 80, textAlignVertical: 'top' },
   
-  // Date picker styles
+  timeButton: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#F9FAFB', borderRadius: 12, borderWidth: 1, borderColor: '#D1D5DB', gap: 12 },
+  timeText: { fontSize: 16, color: '#374151', fontWeight: '600' },
+  
   dateButton: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#F9FAFB', borderRadius: 12, borderWidth: 1, borderColor: '#D1D5DB', gap: 12 },
   dateText: { fontSize: 16, color: '#374151', fontWeight: '600' },
   
-  // Toggle styles - FIXED: Centered
   toggleSection: { marginBottom: 16 },
   toggleContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#D1D5DB' },
   toggleTextContainer: { flex: 1, marginRight: 12 },
   toggleTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 4 },
   toggleDescription: { fontSize: 13, color: '#6B7280', lineHeight: 18 },
   
-  // Info boxes
   infoBox: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#EEF2FF', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#C7D2FE', marginBottom: 16 },
   infoTitle: { fontSize: 14, fontWeight: '700', color: '#4F46E5', marginBottom: 8 },
   infoText: { fontSize: 13, color: '#4F46E5', lineHeight: 20 },
@@ -727,13 +770,11 @@ const styles = StyleSheet.create({
   
   note: { fontSize: 12, color: '#6B7280', fontStyle: 'italic', textAlign: 'center', marginTop: 12 },
   
-  // Save button
   saveButton: { marginHorizontal: 20, marginVertical: 16, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, gap: 12 },
   saveButtonText: { fontSize: 18, fontWeight: '700', color: 'white' },
   
-  // FAB button
   fab: { position: 'absolute', right: 20, bottom: 20, width: 60, height: 60, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
   fabGradient: { width: '100%', height: '100%', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
 });
