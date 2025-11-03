@@ -1,4 +1,4 @@
-// components/QRCodeGenerator.tsx
+// components/QRCodeGenerator.tsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Pressable,
   Share,
+  Alert,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,6 +24,7 @@ interface QRCodeGeneratorProps {
 const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, userId }) => {
   const [connectionCode, setConnectionCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
@@ -30,39 +32,116 @@ const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, use
     }
   }, [visible]);
 
+  // ✅ FIX: Better error handling
   const loadConnectionCode = async () => {
     setLoading(true);
-    const code = await caregiverService.getConnectionCode(userId);
-    setConnectionCode(code);
-    setLoading(false);
+    setError(null);
+    
+    try {
+      console.log('🔑 Loading connection code for user:', userId);
+      
+      const code = await caregiverService.getConnectionCode(userId);
+      
+      if (!code) {
+        throw new Error('Failed to generate connection code');
+      }
+      
+      console.log('✅ Connection code loaded:', code);
+      setConnectionCode(code);
+    } catch (error: any) {
+      console.error('❌ Error loading connection code:', error);
+      setError(error.message || 'Failed to load connection code');
+      Alert.alert(
+        'Error',
+        'Failed to generate connection code. Please try again.',
+        [{ text: 'OK', onPress: onClose }]
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRefreshCode = async () => {
-    setLoading(true);
-    const newCode = await caregiverService.generateConnectionCode(userId);
-    setConnectionCode(newCode);
-    setLoading(false);
+    Alert.alert(
+      'Generate New Code',
+      'This will invalidate your current code. Existing connections will remain active. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Generate',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            setError(null);
+            
+            try {
+              console.log('🔄 Generating new connection code...');
+              
+              const newCode = await caregiverService.generateConnectionCode(userId);
+              
+              if (!newCode) {
+                throw new Error('Failed to generate new code');
+              }
+              
+              console.log('✅ New code generated:', newCode);
+              setConnectionCode(newCode);
+              
+              Alert.alert('Success', 'New connection code generated!');
+            } catch (error: any) {
+              console.error('❌ Error generating new code:', error);
+              setError(error.message || 'Failed to generate new code');
+              Alert.alert('Error', 'Failed to generate new code. Please try again.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleShareCode = async () => {
-    if (!connectionCode) return;
+    if (!connectionCode) {
+      Alert.alert('Error', 'No connection code available');
+      return;
+    }
     
     try {
+      const message = `🏥 MediMinder Connection Request
+
+I'd like you to help manage my medications.
+
+📱 Connection Code: ${connectionCode}
+
+How to connect:
+1. Open MediMinder app
+2. Go to Profile → Scan Patient QR Code
+3. Scan this QR code or enter the code manually
+
+This connection allows you to:
+• View my medications
+• Help me track doses
+• Get adherence updates
+
+Thank you for your support! 💊`;
+
       await Share.share({
-        message: `Join me on MedReminder! Use this code to help manage my medications: ${connectionCode}`,
-        title: 'MedReminder Connection Code',
+        message,
+        title: 'MediMinder Connection Code',
       });
+      
+      console.log('✅ Code shared successfully');
     } catch (error) {
-      console.error('Error sharing:', error);
+      console.error('❌ Error sharing:', error);
     }
   };
 
   return (
     <Modal
       isVisible={visible}
-      onBackdropPress={onClose}
-      onSwipeComplete={onClose}
-      swipeDirection="down"
+      onBackdropPress={!loading ? onClose : undefined}
+      onSwipeComplete={!loading ? onClose : undefined}
+      swipeDirection={!loading ? "down" : undefined}
       style={styles.modal}
     >
       <View style={styles.modalContent}>
@@ -73,7 +152,7 @@ const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, use
           style={styles.header}
         >
           <Text style={styles.title}>Connection QR Code</Text>
-          <Pressable onPress={onClose} style={styles.closeButton}>
+          <Pressable onPress={onClose} style={styles.closeButton} disabled={loading}>
             <Ionicons name="close" size={24} color="white" />
           </Pressable>
         </LinearGradient>
@@ -87,6 +166,19 @@ const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, use
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#6366F1" />
               <Text style={styles.loadingText}>Generating code...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle" size={48} color="#EF4444" />
+              <Text style={styles.errorText}>{error}</Text>
+              <Pressable style={styles.retryButton} onPress={loadConnectionCode}>
+                <LinearGradient
+                  colors={['#6366F1', '#8B5CF6']}
+                  style={styles.retryButtonGradient}
+                >
+                  <Text style={styles.retryButtonText}>Try Again</Text>
+                </LinearGradient>
+              </Pressable>
             </View>
           ) : connectionCode ? (
             <>
@@ -107,14 +199,14 @@ const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, use
                   <Text style={styles.codeText}>{connectionCode}</Text>
                 </View>
                 <Text style={styles.codeHint}>
-                  Your caregiver can also manually enter this code
+                  Your caregiver can scan the QR code or enter this code manually
                 </Text>
               </View>
 
               <View style={styles.actions}>
                 <Pressable style={styles.actionButton} onPress={handleShareCode}>
                   <Ionicons name="share-social" size={20} color="#6366F1" />
-                  <Text style={styles.actionButtonText}>Share Code</Text>
+                  <Text style={styles.actionButtonText}>Share</Text>
                 </Pressable>
 
                 <Pressable style={styles.actionButton} onPress={handleRefreshCode}>
@@ -126,19 +218,24 @@ const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ visible, onClose, use
               <View style={styles.infoBox}>
                 <Ionicons name="information-circle" size={20} color="#6366F1" />
                 <Text style={styles.infoText}>
-                  This code never expires but you can generate a new one anytime
+                  This code never expires. Generate a new code anytime. Your caregiver can be anywhere - no need to be close!
                 </Text>
               </View>
+
+              <View style={styles.permissionsBox}>
+                <Text style={styles.permissionsTitle}>
+                  🔐 What caregivers can do:
+                </Text>
+                <View style={styles.permissionsList}>
+                  <Text style={styles.permissionItem}>✓ View your medications</Text>
+                  <Text style={styles.permissionItem}>✓ Add new medications</Text>
+                  <Text style={styles.permissionItem}>✓ Update medication details</Text>
+                  <Text style={styles.permissionItem}>✓ Remove medications</Text>
+                  <Text style={styles.permissionItem}>✓ View adherence history</Text>
+                </View>
+              </View>
             </>
-          ) : (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={48} color="#EF4444" />
-              <Text style={styles.errorText}>Failed to generate code</Text>
-              <Pressable style={styles.retryButton} onPress={loadConnectionCode}>
-                <Text style={styles.retryButtonText}>Try Again</Text>
-              </Pressable>
-            </View>
-          )}
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -199,6 +296,33 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 16,
   },
+  errorContainer: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  errorText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginTop: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  retryButtonGradient: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
   qrContainer: {
     alignItems: 'center',
     marginBottom: 32,
@@ -240,6 +364,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     textAlign: 'center',
+    paddingHorizontal: 20,
   },
   actions: {
     flexDirection: 'row',
@@ -268,6 +393,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     gap: 12,
+    marginBottom: 16,
   },
   infoText: {
     flex: 1,
@@ -275,27 +401,26 @@ const styles = StyleSheet.create({
     color: '#4F46E5',
     lineHeight: 20,
   },
-  errorContainer: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#6B7280',
-    marginTop: 16,
-    marginBottom: 24,
-  },
-  retryButton: {
-    backgroundColor: '#6366F1',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+  permissionsBox: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  retryButtonText: {
+  permissionsTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: 'white',
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  permissionsList: {
+    gap: 8,
+  },
+  permissionItem: {
+    fontSize: 14,
+    color: '#4B5563',
+    lineHeight: 20,
   },
 });
 

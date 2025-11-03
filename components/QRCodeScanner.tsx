@@ -1,4 +1,4 @@
-// components/QRCodeScanner.tsx
+// components/QRCodeScanner.tsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,23 +39,32 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       setScanned(false);
       setManualCode('');
       setShowManualInput(false);
+      setConnecting(false);
     }
   }, [visible]);
 
-  const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (scanned || connecting) return;
-    
-    setScanned(true);
-    await connectWithCode(data);
-  };
-
+  // ✅ FIX: Better error handling with specific messages
   const connectWithCode = async (code: string) => {
+    if (connecting) return;
+    
+    const trimmedCode = code.trim().toUpperCase();
+    
+    if (trimmedCode.length !== 6) {
+      Alert.alert('Invalid Code', 'Connection code must be 6 characters long.');
+      setScanned(false);
+      return;
+    }
+
     setConnecting(true);
+    
     try {
-      await caregiverService.connectWithCode(userId, code.trim().toUpperCase());
+      console.log('🔗 Attempting connection with code:', trimmedCode);
       
+      await caregiverService.connectWithCode(userId, trimmedCode);
+      
+      // Success
       Alert.alert(
-        '✅ Connected!',
+        '✅ Connected Successfully!',
         'You can now help manage medications for this patient.',
         [
           {
@@ -67,11 +77,35 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         ]
       );
     } catch (error: any) {
-      Alert.alert('Connection Failed', error.message || 'Invalid code. Please try again.');
-      setScanned(false);
+      console.error('❌ Connection error:', error);
+      
+      // Show specific error message from service
+      const errorMessage = error.message || 'Failed to connect. Please try again.';
+      
+      Alert.alert(
+        'Connection Failed', 
+        errorMessage,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setScanned(false);
+              setConnecting(false);
+            }
+          }
+        ]
+      );
     } finally {
       setConnecting(false);
     }
+  };
+
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    if (scanned || connecting) return;
+    
+    console.log('📸 QR Code scanned:', data);
+    setScanned(true);
+    await connectWithCode(data);
   };
 
   const handleManualConnect = () => {
@@ -79,6 +113,8 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       Alert.alert('Error', 'Please enter a connection code');
       return;
     }
+    
+    setScanned(true); // Prevent multiple submissions
     connectWithCode(manualCode);
   };
 
@@ -131,7 +167,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   return (
     <Modal
       isVisible={visible}
-      onBackdropPress={onClose}
+      onBackdropPress={!connecting ? onClose : undefined}
       style={styles.modal}
     >
       <View style={styles.modalContent}>
@@ -144,7 +180,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
           <Text style={styles.title}>
             {showManualInput ? 'Enter Code' : 'Scan QR Code'}
           </Text>
-          <Pressable onPress={onClose} style={styles.closeButton}>
+          <Pressable onPress={onClose} style={styles.closeButton} disabled={connecting}>
             <Ionicons name="close" size={24} color="white" />
           </Pressable>
         </LinearGradient>
@@ -165,19 +201,23 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                 maxLength={6}
                 autoCapitalize="characters"
                 autoCorrect={false}
+                editable={!connecting}
               />
 
               <Pressable 
-                style={styles.connectButton}
+                style={[styles.connectButton, connecting && styles.connectButtonDisabled]}
                 onPress={handleManualConnect}
-                disabled={connecting}
+                disabled={connecting || !manualCode.trim()}
               >
                 <LinearGradient
                   colors={connecting ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
                   style={styles.connectButtonGradient}
                 >
                   {connecting ? (
-                    <Ionicons name="refresh" size={24} color="white" />
+                    <>
+                      <ActivityIndicator size="small" color="white" />
+                      <Text style={styles.connectButtonText}>Connecting...</Text>
+                    </>
                   ) : (
                     <>
                       <Ionicons name="link" size={24} color="white" />
@@ -187,9 +227,11 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                 </LinearGradient>
               </Pressable>
 
-              <Pressable onPress={() => setShowManualInput(false)}>
-                <Text style={styles.switchLink}>Scan QR code instead</Text>
-              </Pressable>
+              {!connecting && (
+                <Pressable onPress={() => setShowManualInput(false)}>
+                  <Text style={styles.switchLink}>Scan QR code instead</Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <>
@@ -207,19 +249,27 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                 />
                 <View style={styles.scanOverlay}>
                   <View style={styles.scanFrame} />
+                  {connecting && (
+                    <View style={styles.scanningOverlay}>
+                      <ActivityIndicator size="large" color="white" />
+                      <Text style={styles.scanningText}>Connecting...</Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
-              {scanned && (
+              {scanned && !connecting && (
                 <View style={styles.scanningIndicator}>
                   <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-                  <Text style={styles.scanningText}>Code scanned! Connecting...</Text>
+                  <Text style={styles.scanningIndicatorText}>Code scanned!</Text>
                 </View>
               )}
 
-              <Pressable onPress={() => setShowManualInput(true)}>
-                <Text style={styles.manualLink}>Enter code manually</Text>
-              </Pressable>
+              {!connecting && (
+                <Pressable onPress={() => setShowManualInput(true)}>
+                  <Text style={styles.manualLink}>Enter code manually</Text>
+                </Pressable>
+              )}
             </>
           )}
         </View>
@@ -298,13 +348,29 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'transparent',
   },
+  scanningOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanningText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+  },
   scanningIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginBottom: 16,
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  scanningText: {
+  scanningIndicatorText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#10B981',
@@ -331,12 +397,16 @@ const styles = StyleSheet.create({
     letterSpacing: 8,
     marginBottom: 24,
     color: '#1F2937',
+    backgroundColor: '#F9FAFB',
   },
   connectButton: {
     width: '100%',
     borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 16,
+  },
+  connectButtonDisabled: {
+    opacity: 0.7,
   },
   connectButtonGradient: {
     flexDirection: 'row',

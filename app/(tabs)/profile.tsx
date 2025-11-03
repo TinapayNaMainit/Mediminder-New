@@ -23,57 +23,95 @@ import EditProfileModal from '../../components/EditProfileModal';
 import QRCodeGenerator from '../../components/QRCodeGenerator';
 import QRCodeScanner from '../../components/QRCodeScanner';
 
-// ✅ FAQ Data
+// ✅ FAQ Data - Official Mediminder FAQ
 const FAQ_DATA = [
+  // Medication Intervals and Dosage
   {
     id: '1',
-    question: 'How do I add a medication?',
-    answer: 'Tap the "+" button on the Medications screen. Fill in the medication name, dosage, frequency, and set your reminder time. You can also add notes and track inventory.'
+    category: 'Medication Intervals and Dosage',
+    question: 'What is the recommended interval for taking Biogesic (Paracetamol)?',
+    answer: 'Every 4 to 6 hours as needed, not exceeding 4 grams per day for adults.'
   },
   {
     id: '2',
-    question: 'What do the different frequencies mean?',
-    answer: 'Every 4 hours = 6 times daily\nEvery 6 hours = 4 times daily\nEvery 8 hours = 3 times daily\nEvery 12 hours = 2 times daily\n\nReminders are calculated from your start time.'
+    category: 'Medication Intervals and Dosage',
+    question: 'How often can I take Neozep for cold symptoms?',
+    answer: 'Every 6 hours as needed, unless otherwise prescribed by a physician.'
   },
   {
     id: '3',
-    question: 'How does inventory tracking work?',
-    answer: 'Enable inventory tracking when adding a medication. Enter your total quantity and current amount. The app will automatically decrease the count when you mark medication as taken and alert you when running low.'
+    category: 'Medication Intervals and Dosage',
+    question: 'Is it safe to take vitamins and maintenance medicines together?',
+    answer: 'Generally safe, but it depends on the specific medications and dosage. Consult your doctor or pharmacist for advice.'
   },
   {
     id: '4',
-    question: 'What happens if I miss a dose?',
-    answer: 'If you miss a dose by more than 1 hour, it will be automatically marked as missed. You\'ll receive a notification asking if you want to adjust your next reminder time.'
+    category: 'Medication Intervals and Dosage',
+    question: 'How long after eating should I take my maintenance medicine?',
+    answer: 'Follow the prescription label; most maintenance medicines are taken after meals unless stated otherwise.'
   },
+  // Restrictions and Safety
   {
     id: '5',
-    question: 'How do I connect with a caregiver?',
-    answer: 'Patients: Go to Profile → Share My QR Code\nCaregivers: Go to Profile → Scan Patient QR Code\n\nOnce connected, caregivers can help manage the patient\'s medications.'
+    category: 'Restrictions and Safety',
+    question: 'Can Biogesic be given to children below 12 years old?',
+    answer: 'Only if recommended by a doctor and based on proper dosage for age and weight.'
   },
   {
     id: '6',
-    question: 'Can I change my role after selection?',
-    answer: 'Yes, go to Profile → Change Role. Note: This will disconnect all current caregiver connections and you\'ll need to sign in again.'
+    category: 'Restrictions and Safety',
+    question: 'Is Neozep safe for pregnant or breastfeeding women?',
+    answer: 'It is not recommended without medical advice. Always consult a doctor before use.'
   },
   {
     id: '7',
-    question: 'What does the AI Companion do?',
-    answer: 'MedCompanion is your AI health assistant powered by Google Gemini. It can answer questions about your medications, side effects, adherence tips, and general health queries. Tap the floating chat icon on the home screen.'
+    category: 'Restrictions and Safety',
+    question: 'Can elderly patients take multiple maintenance medicines at the same time?',
+    answer: 'Yes, if prescribed by a physician. Medication timing and combinations should be managed carefully to avoid interactions.'
   },
   {
     id: '8',
-    question: 'How do I dispose of expired medications?',
-    answer: 'Go to Safety tab to see expired medications. Tap "Disposal Guide" for safe disposal instructions. Never flush medications or throw them in regular trash.'
+    category: 'Restrictions and Safety',
+    question: 'What should I do if I missed a dose of my maintenance medicine?',
+    answer: 'Take the missed dose as soon as you remember, unless it\'s almost time for your next dose. Do not double the dose.'
   },
+  // App Use and Functionality
   {
     id: '9',
-    question: 'Why am I not receiving notifications?',
-    answer: 'Check: 1) Notification permissions are enabled in Settings\n2) Battery optimization is disabled for MediMinder\n3) Do Not Disturb is off\n4) Medication is marked as "Active"'
+    category: 'App Use and Functionality',
+    question: 'How does MediMinder remind users to take medicines on time?',
+    answer: 'The app sends timely alerts based on user-set schedules for each medication.'
   },
   {
     id: '10',
-    question: 'How is my streak calculated?',
-    answer: 'Your streak counts consecutive days where you took ALL your active medications. Missing even one medication breaks the streak.'
+    category: 'App Use and Functionality',
+    question: 'Can caregivers monitor the medication schedules of their dependents?',
+    answer: 'Yes, caregivers can view reminders and logs through linked accounts.'
+  },
+  {
+    id: '11',
+    category: 'App Use and Functionality',
+    question: 'Does MediMinder notify users of soon-to-expire medicines?',
+    answer: 'Yes, the app provides alerts before a medicine\'s expiration date to prevent accidental intake.'
+  },
+  // General Safety and Health
+  {
+    id: '12',
+    category: 'General Safety and Health',
+    question: 'What should I do if I experience side effects after taking my medication?',
+    answer: 'Stop taking the medicine and consult a doctor immediately. Seek emergency help if symptoms are severe.'
+  },
+  {
+    id: '13',
+    category: 'General Safety and Health',
+    question: 'Is the information in MediMinder a substitute for medical consultation?',
+    answer: 'No. MediMinder only provides reminders and general medicine information. Always consult a healthcare professional for medical advice.'
+  },
+  {
+    id: '14',
+    category: 'General Safety and Health',
+    question: 'Can MediMinder be used for over-the-counter (OTC) and prescription drugs alike?',
+    answer: 'Yes, users may record both types, but all prescription medicines should still be taken under doctor supervision.'
   }
 ];
 
@@ -499,38 +537,162 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ✅ FAQ Section */}
+        {/* ✅ FAQ Section - Official Mediminder FAQ */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>❓ FAQ - Frequently Asked Questions</Text>
-          <View style={styles.settingsGroup}>
-            {FAQ_DATA.map((faq) => (
-              <View key={faq.id} style={styles.faqItem}>
-                <Pressable
-                  style={styles.faqQuestion}
-                  onPress={() => toggleFAQ(faq.id)}
-                >
-                  <View style={styles.faqQuestionContent}>
+          <Text style={styles.faqDescription}>
+            Official medication and app usage guidelines
+          </Text>
+          
+          {/* Medication Intervals and Dosage */}
+          <View style={styles.faqCategory}>
+            <Text style={styles.faqCategoryTitle}>💊 Medication Intervals and Dosage</Text>
+            <View style={styles.settingsGroup}>
+              {FAQ_DATA.filter(f => f.category === 'Medication Intervals and Dosage').map((faq) => (
+                <View key={faq.id} style={styles.faqItem}>
+                  <Pressable
+                    style={styles.faqQuestion}
+                    onPress={() => toggleFAQ(faq.id)}
+                  >
+                    <View style={styles.faqQuestionContent}>
+                      <Ionicons 
+                        name="help-circle" 
+                        size={20} 
+                        color="#6366F1" 
+                        style={styles.faqIcon}
+                      />
+                      <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                    </View>
                     <Ionicons 
-                      name="help-circle" 
+                      name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
                       size={20} 
-                      color="#6366F1" 
-                      style={styles.faqIcon}
+                      color="#9CA3AF" 
                     />
-                    <Text style={styles.faqQuestionText}>{faq.question}</Text>
-                  </View>
-                  <Ionicons 
-                    name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
-                    size={20} 
-                    color="#9CA3AF" 
-                  />
-                </Pressable>
-                {expandedFAQ === faq.id && (
-                  <View style={styles.faqAnswer}>
-                    <Text style={styles.faqAnswerText}>{faq.answer}</Text>
-                  </View>
-                )}
-              </View>
-            ))}
+                  </Pressable>
+                  {expandedFAQ === faq.id && (
+                    <View style={styles.faqAnswer}>
+                      <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Restrictions and Safety */}
+          <View style={styles.faqCategory}>
+            <Text style={styles.faqCategoryTitle}>🛡️ Restrictions and Safety</Text>
+            <View style={styles.settingsGroup}>
+              {FAQ_DATA.filter(f => f.category === 'Restrictions and Safety').map((faq) => (
+                <View key={faq.id} style={styles.faqItem}>
+                  <Pressable
+                    style={styles.faqQuestion}
+                    onPress={() => toggleFAQ(faq.id)}
+                  >
+                    <View style={styles.faqQuestionContent}>
+                      <Ionicons 
+                        name="help-circle" 
+                        size={20} 
+                        color="#6366F1" 
+                        style={styles.faqIcon}
+                      />
+                      <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                    </View>
+                    <Ionicons 
+                      name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#9CA3AF" 
+                    />
+                  </Pressable>
+                  {expandedFAQ === faq.id && (
+                    <View style={styles.faqAnswer}>
+                      <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* App Use and Functionality */}
+          <View style={styles.faqCategory}>
+            <Text style={styles.faqCategoryTitle}>📱 App Use and Functionality</Text>
+            <View style={styles.settingsGroup}>
+              {FAQ_DATA.filter(f => f.category === 'App Use and Functionality').map((faq) => (
+                <View key={faq.id} style={styles.faqItem}>
+                  <Pressable
+                    style={styles.faqQuestion}
+                    onPress={() => toggleFAQ(faq.id)}
+                  >
+                    <View style={styles.faqQuestionContent}>
+                      <Ionicons 
+                        name="help-circle" 
+                        size={20} 
+                        color="#6366F1" 
+                        style={styles.faqIcon}
+                      />
+                      <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                    </View>
+                    <Ionicons 
+                      name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#9CA3AF" 
+                    />
+                  </Pressable>
+                  {expandedFAQ === faq.id && (
+                    <View style={styles.faqAnswer}>
+                      <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* General Safety and Health */}
+          <View style={styles.faqCategory}>
+            <Text style={styles.faqCategoryTitle}>⚕️ General Safety and Health</Text>
+            <View style={styles.settingsGroup}>
+              {FAQ_DATA.filter(f => f.category === 'General Safety and Health').map((faq) => (
+                <View key={faq.id} style={styles.faqItem}>
+                  <Pressable
+                    style={styles.faqQuestion}
+                    onPress={() => toggleFAQ(faq.id)}
+                  >
+                    <View style={styles.faqQuestionContent}>
+                      <Ionicons 
+                        name="help-circle" 
+                        size={20} 
+                        color="#6366F1" 
+                        style={styles.faqIcon}
+                      />
+                      <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                    </View>
+                    <Ionicons 
+                      name={expandedFAQ === faq.id ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#9CA3AF" 
+                    />
+                  </Pressable>
+                  {expandedFAQ === faq.id && (
+                    <View style={styles.faqAnswer}>
+                      <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Important Disclaimer */}
+          <View style={styles.disclaimerBox}>
+            <Ionicons name="warning" size={24} color="#F59E0B" />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.disclaimerTitle}>⚠️ Important Medical Disclaimer</Text>
+              <Text style={styles.disclaimerText}>
+                MediMinder provides reminders and general medicine information only. This app is NOT a substitute for professional medical consultation. Always consult a healthcare professional for medical advice, diagnosis, or treatment.
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -575,7 +737,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Mediminder v1.2.5</Text>
+          <Text style={styles.footerText}>Mediminder v1.2.7</Text>
           <Text style={styles.footerSubtext}>With AI Companion by Google Gemini</Text>
         </View>
 
@@ -827,6 +989,23 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   // ✅ FAQ Styles
+  faqDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginHorizontal: 16,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  faqCategory: {
+    marginBottom: 24,
+  },
+  faqCategoryTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
   faqItem: {
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
@@ -847,10 +1026,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   faqQuestionText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
+    lineHeight: 22,
   },
   faqAnswer: {
     paddingHorizontal: 16,
@@ -861,6 +1041,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     lineHeight: 22,
+  },
+  disclaimerBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    padding: 16,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginTop: 24,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  disclaimerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 8,
+  },
+  disclaimerText: {
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 20,
   },
   signOutButton: {
     margin: 16,

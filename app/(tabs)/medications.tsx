@@ -1,3 +1,4 @@
+// app/(tabs)/medications.tsx - WITH CAREGIVER ACCESS
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -14,26 +15,92 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { supabase, DatabaseMedication, formatTime } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProfile } from '../../contexts/ProfileContext';
 import { notificationService } from '../../services/notificationService';
+import { caregiverService } from '../../services/caregiverService';
 
 export default function MedicationsScreen() {
+  const { user } = useAuth();
+  const { profile } = useProfile();
   const [medications, setMedications] = useState<DatabaseMedication[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // ✅ NEW: Caregiver-specific state
+  const [isCaregiver, setIsCaregiver] = useState(false);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
 
-  const { user } = useAuth();
   const CURRENT_USER_ID = user?.id;
   
   if (!CURRENT_USER_ID) {
     return null;
   }
 
+  // ✅ FIX: Pass selectedPatientId to modal when caregiver
+  const handleAddMedication = () => {
+    if (isCaregiver && selectedPatient) {
+      // Pass patient ID to modal
+      router.push({
+        pathname: '/modal',
+        params: { patientId: selectedPatient.id, patientName: selectedPatient.display_name }
+      });
+    } else {
+      router.push('/modal');
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
-      loadMedications();
+      loadUserData();
     }, [])
   );
 
+  // ✅ NEW: Load user data and determine role
+  const loadUserData = async () => {
+    try {
+      setLoading(true);
+
+      // Check if user is a caregiver
+      if (profile?.role === 'caregiver') {
+        setIsCaregiver(true);
+        
+        // Load patients for caregiver
+        const patientsList = await caregiverService.getPatientsForCaregiver(CURRENT_USER_ID);
+        setPatients(patientsList);
+        
+        // Auto-select first patient if available
+        if (patientsList.length > 0) {
+          setSelectedPatient(patientsList[0]);
+          await loadPatientMedications(patientsList[0].id);
+        } else {
+          setMedications([]);
+        }
+      } else {
+        // Patient - load own medications
+        setIsCaregiver(false);
+        await loadMedications();
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✅ UPDATED: Load patient medications (for caregivers)
+  const loadPatientMedications = async (patientId: string) => {
+    try {
+      const meds = await caregiverService.getPatientMedications(CURRENT_USER_ID, patientId);
+      setMedications(meds);
+    } catch (error) {
+      console.error('Error loading patient medications:', error);
+      Alert.alert('Error', 'Failed to load medications');
+      setMedications([]);
+    }
+  };
+
+  // Load own medications (for patients)
   const loadMedications = async () => {
     try {
       const { data, error } = await supabase
@@ -47,11 +114,11 @@ export default function MedicationsScreen() {
     } catch (error) {
       console.error('Error loading medications:', error);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
 
+  // ✅ UPDATED: Handle delete for both roles
   const handleDeleteMedication = (id: string, name: string) => {
     Alert.alert(
       'Delete Medication',
@@ -63,20 +130,32 @@ export default function MedicationsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Cancel all notifications for this medication FIRST
-              await notificationService.cancelMedicationNotifications(id);
-              console.log(`✅ Cancelled notifications for medication: ${id}`);
+              if (isCaregiver && selectedPatient) {
+                // Caregiver deleting patient medication
+                const success = await caregiverService.deletePatientMedication(
+                  CURRENT_USER_ID,
+                  selectedPatient.id,
+                  id
+                );
+                
+                if (success) {
+                  Alert.alert('Success', 'Medication deleted successfully');
+                  await loadPatientMedications(selectedPatient.id);
+                }
+              } else {
+                // Patient deleting own medication
+                await notificationService.cancelMedicationNotifications(id);
+                
+                const { error } = await supabase
+                  .from('medications')
+                  .delete()
+                  .eq('id', id);
 
-              // Then delete from database
-              const { error } = await supabase
-                .from('medications')
-                .delete()
-                .eq('id', id);
+                if (error) throw error;
 
-              if (error) throw error;
-
-              setMedications(medications.filter(med => med.id !== id));
-              Alert.alert('Success', 'Medication and reminders deleted successfully');
+                setMedications(medications.filter(med => med.id !== id));
+                Alert.alert('Success', 'Medication deleted successfully');
+              }
             } catch (error) {
               console.error('Error deleting medication:', error);
               Alert.alert('Error', 'Failed to delete medication');
@@ -87,57 +166,67 @@ export default function MedicationsScreen() {
     );
   };
 
+  // ✅ UPDATED: Toggle status for both roles
   const toggleMedicationStatus = async (id: string, currentStatus: boolean, medication: DatabaseMedication) => {
     try {
       const newStatus = !currentStatus;
       
-      const { error } = await supabase
-        .from('medications')
-        .update({ 
-          is_active: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      // Update notifications based on new status
-      if (newStatus) {
-        // Reactivating: Schedule notifications
-        const [hour, minute] = medication.reminder_time.split(':').map(Number);
-        const notificationId = await notificationService.scheduleMedicationReminder(
+      if (isCaregiver && selectedPatient) {
+        // Caregiver updating patient medication
+        const success = await caregiverService.updatePatientMedication(
+          CURRENT_USER_ID,
+          selectedPatient.id,
           id,
-          medication.medication_name,
-          medication.dosage,
-          medication.dosage_unit,
-          hour,
-          minute,
-          medication.notes || undefined
+          { is_active: newStatus }
         );
-        
-        if (notificationId) {
-          console.log(`✅ Reactivated and scheduled notification for: ${medication.medication_name}`);
+
+        if (success) {
+          Alert.alert(
+            newStatus ? 'Activated' : 'Paused',
+            `${medication.medication_name} has been ${newStatus ? 'activated' : 'paused'}`
+          );
+          await loadPatientMedications(selectedPatient.id);
+        }
+      } else {
+        // Patient updating own medication
+        const { error } = await supabase
+          .from('medications')
+          .update({ 
+            is_active: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Update notifications
+        if (newStatus) {
+          const [hour, minute] = medication.reminder_time.split(':').map(Number);
+          await notificationService.scheduleMedicationReminder(
+            id,
+            medication.medication_name,
+            medication.dosage,
+            medication.dosage_unit,
+            hour,
+            minute,
+            medication.notes || undefined
+          );
+          
           Alert.alert(
             'Activated',
             `${medication.medication_name} is now active. You'll receive daily reminders at ${formatTime(medication.reminder_time)}`
           );
         } else {
-          console.warn('⚠️ Failed to schedule notification');
-          Alert.alert('Warning', 'Medication activated but notification scheduling failed. Please check notification permissions.');
+          await notificationService.cancelMedicationNotifications(id);
+          Alert.alert('Paused', `${medication.medication_name} reminders have been turned off`);
         }
-      } else {
-        // Deactivating: Cancel notifications
-        await notificationService.cancelMedicationNotifications(id);
-        console.log(`✅ Deactivated and cancelled notifications for: ${medication.medication_name}`);
-        Alert.alert('Paused', `${medication.medication_name} reminders have been turned off`);
+        
+        setMedications(
+          medications.map(med =>
+            med.id === id ? { ...med, is_active: newStatus } : med
+          )
+        );
       }
-      
-      // Update local state
-      setMedications(
-        medications.map(med =>
-          med.id === id ? { ...med, is_active: newStatus } : med
-        )
-      );
     } catch (error) {
       console.error('Error updating medication status:', error);
       Alert.alert('Error', 'Failed to update medication status');
@@ -146,7 +235,46 @@ export default function MedicationsScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadMedications();
+    if (isCaregiver && selectedPatient) {
+      loadPatientMedications(selectedPatient.id);
+    } else {
+      loadMedications();
+    }
+  };
+
+  // ✅ NEW: Patient selector for caregivers
+  const renderPatientSelector = () => {
+    if (!isCaregiver || patients.length === 0) return null;
+
+    return (
+      <View style={styles.patientSelector}>
+        <Text style={styles.selectorLabel}>Managing medications for:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {patients.map((patient) => (
+            <Pressable
+              key={patient.id}
+              style={[
+                styles.patientChip,
+                selectedPatient?.id === patient.id && styles.patientChipActive
+              ]}
+              onPress={async () => {
+                setSelectedPatient(patient);
+                setLoading(true);
+                await loadPatientMedications(patient.id);
+                setLoading(false);
+              }}
+            >
+              <Text style={[
+                styles.patientChipText,
+                selectedPatient?.id === patient.id && styles.patientChipTextActive
+              ]}>
+                {patient.display_name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    );
   };
 
   const renderMedicationItem = (medication: DatabaseMedication) => (
@@ -221,55 +349,103 @@ export default function MedicationsScreen() {
         colors={['#667EEA', '#764BA2']}
         style={styles.header}
       >
-        <Text style={styles.headerTitle}>My Medications</Text>
-        <Text style={styles.headerSubtitle}>
-          {medications.filter(m => m.is_active).length} active • {medications.length} total
+        <Text style={styles.headerTitle}>
+          {isCaregiver ? 'Patient Medications' : 'My Medications'}
         </Text>
-      </LinearGradient>
-
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {medications.length > 0 ? (
-          medications.map(renderMedicationItem)
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="medical-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyTitle}>No medications yet</Text>
-            <Text style={styles.emptyText}>
-              Add your first medication to start tracking your health journey
-            </Text>
-            <Pressable
-              style={styles.emptyAddButton}
-              onPress={() => router.push('/modal')}
-            >
-              <LinearGradient
-                colors={['#6366F1', '#8B5CF6']}
-                style={styles.emptyAddButtonGradient}
-              >
-                <Ionicons name="add" size={24} color="white" />
-                <Text style={styles.emptyAddButtonText}>Add First Medication</Text>
-              </LinearGradient>
-            </Pressable>
+        <Text style={styles.headerSubtitle}>
+          {isCaregiver 
+            ? `${patients.length} patient${patients.length !== 1 ? 's' : ''} • ${medications.filter(m => m.is_active).length} active meds`
+            : `${medications.filter(m => m.is_active).length} active • ${medications.length} total`
+          }
+        </Text>
+        {/* ✅ NEW: Show caregiver badge */}
+        {isCaregiver && (
+          <View style={styles.caregiverBadge}>
+            <Ionicons name="heart" size={14} color="white" />
+            <Text style={styles.caregiverBadgeText}>Caregiver Mode</Text>
           </View>
         )}
-      </ScrollView>
+      </LinearGradient>
 
-      <Pressable
-        style={styles.fab}
-        onPress={() => router.push('/modal')}
-      >
-        <LinearGradient
-          colors={['#10B981', '#059669']}
-          style={styles.fabGradient}
+      {/* ✅ NEW: Patient selector for caregivers */}
+      {renderPatientSelector()}
+
+      {/* ✅ NEW: No patients message for caregivers */}
+      {isCaregiver && patients.length === 0 ? (
+        <View style={styles.noPatients}>
+          <Ionicons name="people-outline" size={64} color="#D1D5DB" />
+          <Text style={styles.noPatientsTitle}>No Patients Connected</Text>
+          <Text style={styles.noPatientsText}>
+            Scan a patient's QR code to start managing their medications
+          </Text>
+          <Pressable
+            style={styles.scanButton}
+            onPress={() => router.push('/(tabs)/profile')}
+          >
+            <LinearGradient
+              colors={['#6366F1', '#8B5CF6']}
+              style={styles.scanButtonGradient}
+            >
+              <Ionicons name="scan" size={24} color="white" />
+              <Text style={styles.scanButtonText}>Scan Patient Code</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         >
-          <Ionicons name="add" size={28} color="white" />
-        </LinearGradient>
-      </Pressable>
+          {medications.length > 0 ? (
+            medications.map(renderMedicationItem)
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="medical-outline" size={64} color="#D1D5DB" />
+              <Text style={styles.emptyTitle}>
+                {isCaregiver ? 'No medications for this patient' : 'No medications yet'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {isCaregiver 
+                  ? 'Add medications to help them stay on track'
+                  : 'Add your first medication to start tracking your health journey'
+                }
+              </Text>
+              <Pressable
+                style={styles.emptyAddButton}
+                onPress={() => router.push('/modal')}
+              >
+                <LinearGradient
+                  colors={['#6366F1', '#8B5CF6']}
+                  style={styles.emptyAddButtonGradient}
+                >
+                  <Ionicons name="add" size={24} color="white" />
+                  <Text style={styles.emptyAddButtonText}>
+                    {isCaregiver ? 'Add Medication for Patient' : 'Add First Medication'}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* ✅ UPDATED: FAB shows for both roles */}
+      {(!isCaregiver || (isCaregiver && selectedPatient)) && (
+        <Pressable
+          style={styles.fab}
+          onPress={() => router.push('/modal')}
+        >
+          <LinearGradient
+            colors={['#10B981', '#059669']}
+            style={styles.fabGradient}
+          >
+            <Ionicons name="add" size={28} color="white" />
+          </LinearGradient>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -293,6 +469,92 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'rgba(255,255,255,0.8)',
     marginTop: 4,
+  },
+  caregiverBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginTop: 12,
+    gap: 6,
+  },
+  caregiverBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  patientSelector: {
+    backgroundColor: 'white',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  selectorLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  patientChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  patientChipActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
+  },
+  patientChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  patientChipTextActive: {
+    color: '#6366F1',
+  },
+  noPatients: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  noPatientsTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noPatientsText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  scanButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  scanButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    gap: 8,
+  },
+  scanButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
   },
   content: {
     flex: 1,
