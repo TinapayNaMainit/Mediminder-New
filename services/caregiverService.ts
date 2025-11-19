@@ -1,6 +1,5 @@
-// services/caregiverService.ts - FIXED CONNECTION CODE GENERATION
+// services/caregiverService.ts - VIEW-ONLY VERSION
 import { supabase } from './supabaseClient';
-import { Alert } from 'react-native';
 
 export interface CaregiverConnection {
   id: string;
@@ -20,104 +19,70 @@ export interface CaregiverConnection {
 }
 
 export const caregiverService = {
-  // ✅ FIXED: Generate unique connection code with better error handling
+  // Generate unique connection code for patient
   async generateConnectionCode(userId: string): Promise<string | null> {
     try {
-      console.log('🔑 Generating connection code for user:', userId);
-      
-      // Generate a random 6-character alphanumeric code
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
       
-      console.log('   Generated code:', code);
+      console.log('🔑 Generating connection code:', code, 'for user:', userId);
       
-      // ✅ FIX 1: First check if profile exists
-      const { data: existingProfile, error: checkError } = await supabase
+      const { error } = await supabase
         .from('user_profiles')
-        .select('id, user_id')
-        .eq('user_id', userId)
-        .maybeSingle();
+        .upsert({ 
+          user_id: userId,
+          connection_code: code,
+          updated_at: new Date().toISOString() 
+        }, {
+          onConflict: 'user_id'
+        });
 
-      if (checkError) {
-        console.error('❌ Error checking profile:', checkError);
-        throw new Error('Failed to check profile: ' + checkError.message);
+      if (error) {
+        console.error('❌ Error generating code:', error);
+        throw error;
       }
 
-      if (existingProfile) {
-        // Profile exists - update it
-        console.log('   Profile exists, updating...');
-        const { error: updateError } = await supabase
-          .from('user_profiles')
-          .update({ 
-            connection_code: code,
-            updated_at: new Date().toISOString() 
-          })
-          .eq('user_id', userId);
-
-        if (updateError) {
-          console.error('❌ Error updating code:', updateError);
-          throw new Error('Failed to update code: ' + updateError.message);
-        }
-      } else {
-        // Profile doesn't exist - create it
-        console.log('   Profile does not exist, creating...');
-        const { error: insertError } = await supabase
-          .from('user_profiles')
-          .insert({
-            user_id: userId,
-            display_name: `user${Math.floor(Math.random() * 999999 + 100000)}`,
-            connection_code: code,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-
-        if (insertError) {
-          console.error('❌ Error creating profile:', insertError);
-          throw new Error('Failed to create profile: ' + insertError.message);
-        }
-      }
-
-      console.log('✅ Connection code saved successfully');
+      console.log('✅ Connection code generated successfully');
       return code;
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ Error in generateConnectionCode:', error);
-      Alert.alert('Error', error.message || 'Failed to generate connection code');
       return null;
     }
   },
 
-  // ✅ FIXED: Get connection code with better error handling
+  // Get user's connection code
   async getConnectionCode(userId: string): Promise<string | null> {
     try {
       console.log('📖 Getting connection code for user:', userId);
       
-      // ✅ FIX: Use maybeSingle() instead of single() to avoid errors
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('connection_code, user_id')
+        .select('connection_code')
         .eq('user_id', userId)
-        .maybeSingle();
+        .single();
 
       if (error) {
-        console.error('❌ Database error:', error);
-        throw new Error('Database error: ' + error.message);
+        console.error('❌ Error fetching code:', error);
+        if (error.code === 'PGRST116') {
+          console.log('📝 Profile not found, creating new one...');
+          return await this.generateConnectionCode(userId);
+        }
+        throw error;
       }
       
-      // If no profile or no code, generate new one
-      if (!data || !data.connection_code) {
+      if (!data?.connection_code) {
         console.log('📝 No code found, generating new one...');
         return await this.generateConnectionCode(userId);
       }
       
-      console.log('✅ Found existing code');
+      console.log('✅ Found existing code:', data.connection_code);
       return data.connection_code;
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ Error in getConnectionCode:', error);
-      Alert.alert('Error', error.message || 'Failed to get connection code');
       return null;
     }
   },
 
-  // ✅ FIXED: Better connection validation
+  // Connect caregiver to patient using code
   async connectWithCode(caregiverId: string, connectionCode: string): Promise<boolean> {
     try {
       const trimmedCode = connectionCode.trim().toUpperCase();
@@ -125,19 +90,21 @@ export const caregiverService = {
       console.log('   Caregiver ID:', caregiverId);
       console.log('   Connection Code:', trimmedCode);
 
-      // Verify caregiver profile
+      // Verify caregiver profile exists and has correct role
       const { data: caregiverProfile, error: caregiverError } = await supabase
         .from('user_profiles')
         .select('user_id, role, display_name')
         .eq('user_id', caregiverId)
-        .maybeSingle();
+        .single();
 
       if (caregiverError || !caregiverProfile) {
+        console.error('❌ Caregiver profile not found');
         throw new Error('Caregiver profile not found. Please complete your profile setup.');
       }
 
       if (caregiverProfile.role !== 'caregiver') {
-        throw new Error('Only caregivers can connect to patients.');
+        console.error('❌ User is not a caregiver');
+        throw new Error('Only caregivers can connect to patients. Please check your role.');
       }
 
       console.log('✅ Caregiver verified:', caregiverProfile.display_name);
@@ -147,28 +114,34 @@ export const caregiverService = {
         .from('user_profiles')
         .select('user_id, role, display_name')
         .eq('connection_code', trimmedCode)
-        .maybeSingle();
+        .single();
 
       if (profileError) {
-        console.error('❌ Database error:', profileError);
-        throw new Error('Error finding patient: ' + profileError.message);
+        console.error('❌ Database error finding patient:', profileError);
+        if (profileError.code === 'PGRST116') {
+          throw new Error('Invalid connection code. Please check the code and try again.');
+        }
+        throw new Error('Error finding patient. Please try again.');
       }
 
       if (!patientProfile) {
+        console.error('❌ No patient found with code:', trimmedCode);
         throw new Error('Invalid connection code. Please verify the code is correct.');
       }
 
       console.log('✅ Patient found:', patientProfile.display_name);
 
       if (patientProfile.role !== 'patient') {
+        console.error('❌ Code belongs to a caregiver');
         throw new Error('This code belongs to a caregiver. You can only connect with patients.');
       }
 
       if (patientProfile.user_id === caregiverId) {
+        console.error('❌ Cannot connect to self');
         throw new Error('You cannot connect to yourself.');
       }
 
-      // Check existing connection
+      // Check if connection already exists
       const { data: existing, error: existingError } = await supabase
         .from('caregiver_connections')
         .select('id, status')
@@ -178,11 +151,12 @@ export const caregiverService = {
         .maybeSingle();
 
       if (existingError) {
-        console.error('❌ Error checking connection:', existingError);
-        throw new Error('Error checking connections: ' + existingError.message);
+        console.error('❌ Error checking existing connection:', existingError);
+        throw new Error('Error checking existing connections. Please try again.');
       }
 
       if (existing) {
+        console.warn('⚠️ Connection already exists:', existing.status);
         throw new Error(`You are already ${existing.status === 'active' ? 'connected to' : 'pending connection with'} this patient.`);
       }
 
@@ -202,10 +176,10 @@ export const caregiverService = {
 
       if (connectionError) {
         console.error('❌ Error creating connection:', connectionError);
-        throw new Error('Failed to create connection: ' + connectionError.message);
+        throw new Error('Failed to create connection. Please try again.');
       }
 
-      console.log('✅ Connection created successfully');
+      console.log('✅ Connection created successfully:', newConnection.id);
       return true;
     } catch (error: any) {
       console.error('❌ Connection failed:', error);
@@ -213,10 +187,12 @@ export const caregiverService = {
     }
   },
 
-  // Get all connections (unchanged)
+  // Get all connections for a user
   async getConnections(userId: string): Promise<CaregiverConnection[]> {
     try {
-      const { data: connections, error } = await supabase
+      console.log('📋 Fetching connections for user:', userId);
+
+      const { data: connections, error: connError } = await supabase
         .from('caregiver_connections')
         .select(`
           *,
@@ -235,17 +211,24 @@ export const caregiverService = {
         .eq('status', 'active')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (connError) {
+        console.error('❌ Error fetching connections:', connError);
+        throw connError;
+      }
+
+      console.log(`✅ Found ${connections?.length || 0} connections`);
       return connections || [];
     } catch (error) {
-      console.error('Error in getConnections:', error);
+      console.error('❌ Error in getConnections:', error);
       return [];
     }
   },
 
-  // Remove connection (unchanged)
+  // Remove connection
   async removeConnection(connectionId: string): Promise<boolean> {
     try {
+      console.log('🗑️ Removing connection:', connectionId);
+
       const { error } = await supabase
         .from('caregiver_connections')
         .update({ 
@@ -254,18 +237,23 @@ export const caregiverService = {
         })
         .eq('id', connectionId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error removing connection:', error);
+        throw error;
+      }
+
+      console.log('✅ Connection removed successfully');
       return true;
     } catch (error) {
-      console.error('Error in removeConnection:', error);
+      console.error('❌ Error in removeConnection:', error);
       return false;
     }
   },
 
-  // Check access (unchanged)
+  // Check if user is a caregiver with access to patient
   async hasAccessToPatient(caregiverId: string, patientId: string): Promise<boolean> {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('caregiver_connections')
         .select('id')
         .eq('caregiver_id', caregiverId)
@@ -273,15 +261,23 @@ export const caregiverService = {
         .eq('status', 'active')
         .maybeSingle();
 
+      if (error) {
+        console.error('❌ Error checking access:', error);
+        return false;
+      }
+
       return !!data;
     } catch (error) {
+      console.error('❌ Error in hasAccessToPatient:', error);
       return false;
     }
   },
 
-  // Get patients for caregiver (unchanged)
+  // Get patients that caregiver has access to
   async getPatientsForCaregiver(caregiverId: string): Promise<any[]> {
     try {
+      console.log('👥 Fetching patients for caregiver:', caregiverId);
+
       const { data, error } = await supabase
         .from('caregiver_connections')
         .select(`
@@ -295,25 +291,35 @@ export const caregiverService = {
         .eq('caregiver_id', caregiverId)
         .eq('status', 'active');
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error fetching patients:', error);
+        throw error;
+      }
       
-      return data?.map(conn => ({
+      const patients = data?.map(conn => ({
         id: conn.patient_id,
         ...(conn.patient_profile || {})
       })) || [];
+
+      console.log(`✅ Found ${patients.length} patients`);
+      return patients;
     } catch (error) {
+      console.error('❌ Error in getPatientsForCaregiver:', error);
       return [];
     }
   },
 
-  // Medication management methods (unchanged from your original)
+  // ✅ VIEW-ONLY: Get patient's medications (caregiver access)
   async getPatientMedications(caregiverId: string, patientId: string): Promise<any[]> {
     try {
+      // Verify access first
       const hasAccess = await this.hasAccessToPatient(caregiverId, patientId);
       if (!hasAccess) {
-        Alert.alert('Access Denied', 'You do not have permission to view this patient\'s medications.');
+        console.error('❌ No access to patient medications');
         return [];
       }
+
+      console.log('📋 Fetching patient medications...');
 
       const { data, error } = await supabase
         .from('medications')
@@ -322,89 +328,28 @@ export const caregiverService = {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
+      console.log(`✅ Found ${data?.length || 0} medications`);
       return data || [];
     } catch (error) {
-      console.error('Error fetching patient medications:', error);
+      console.error('❌ Error fetching patient medications:', error);
       return [];
     }
   },
 
-  async addPatientMedication(caregiverId: string, patientId: string, medicationData: any): Promise<boolean> {
+  // ✅ VIEW-ONLY: Get patient's medication logs (caregiver access)
+  async getPatientMedicationLogs(
+    caregiverId: string,
+    patientId: string,
+    medicationId?: string
+  ): Promise<any[]> {
     try {
       const hasAccess = await this.hasAccessToPatient(caregiverId, patientId);
       if (!hasAccess) {
-        Alert.alert('Access Denied', 'You do not have permission to add medications.');
-        return false;
+        return [];
       }
 
-      const { error } = await supabase
-        .from('medications')
-        .insert({
-          ...medicationData,
-          user_id: patientId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add medication');
-      return false;
-    }
-  },
-
-  async updatePatientMedication(caregiverId: string, patientId: string, medicationId: string, updates: any): Promise<boolean> {
-    try {
-      const hasAccess = await this.hasAccessToPatient(caregiverId, patientId);
-      if (!hasAccess) {
-        Alert.alert('Access Denied', 'You do not have permission to update this medication.');
-        return false;
-      }
-
-      const { error } = await supabase
-        .from('medications')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', medicationId)
-        .eq('user_id', patientId);
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update medication');
-      return false;
-    }
-  },
-
-  async deletePatientMedication(caregiverId: string, patientId: string, medicationId: string): Promise<boolean> {
-    try {
-      const hasAccess = await this.hasAccessToPatient(caregiverId, patientId);
-      if (!hasAccess) {
-        Alert.alert('Access Denied', 'You do not have permission to delete this medication.');
-        return false;
-      }
-
-      const { error } = await supabase
-        .from('medications')
-        .delete()
-        .eq('id', medicationId)
-        .eq('user_id', patientId);
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      Alert.alert('Error', 'Failed to delete medication');
-      return false;
-    }
-  },
-
-  async getPatientMedicationLogs(caregiverId: string, patientId: string, medicationId?: string): Promise<any[]> {
-    try {
-      const hasAccess = await this.hasAccessToPatient(caregiverId, patientId);
-      if (!hasAccess) return [];
+      console.log('📊 Fetching medication logs...');
 
       let query = supabase
         .from('medication_logs')
@@ -417,9 +362,13 @@ export const caregiverService = {
       }
 
       const { data, error } = await query;
+
       if (error) throw error;
+
+      console.log(`✅ Found ${data?.length || 0} logs`);
       return data || [];
     } catch (error) {
+      console.error('❌ Error fetching logs:', error);
       return [];
     }
   }

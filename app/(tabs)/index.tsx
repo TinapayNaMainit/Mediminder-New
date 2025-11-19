@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Enhanced with auto-decrement and missed dose adjustment
+// app/(tabs)/index.tsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -16,11 +16,13 @@ import { supabase, DatabaseMedication, formatDate } from '../../services/supabas
 import MedicationCard from '../../components/MedicationCard';
 import AIChatHead from '../../components/AIChatHead';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProfile } from '../../contexts/ProfileContext';
 import { 
   inventoryService, 
   missedDoseService,
   disposalService 
 } from '../../services/medicationEnhancedService';
+import { caregiverService } from '../../services/caregiverService';
 
 interface MedicationStatus {
   taken: boolean;
@@ -66,7 +68,13 @@ export default function HomeScreen() {
   });
   const [aiCompanionEnabled, setAiCompanionEnabled] = useState(true);
 
+  // Caregiver state
+  const [isCaregiver, setIsCaregiver] = useState(false);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
+
   const { user } = useAuth();
+  const { profile } = useProfile();
   const CURRENT_USER_ID = user?.id;
   
   if (!CURRENT_USER_ID) {
@@ -75,40 +83,201 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadTodaysMedications();
-      loadStats();
-      loadAICompanionStatus();
-      checkExpiredMedications();
-      checkLowStockMedications();
+      loadUserData();
     }, [])
   );
 
+  // Load user data and check role
+  const loadUserData = async () => {
+    try {
+      setLoading(true);
+
+      if (profile?.role === 'caregiver') {
+        setIsCaregiver(true);
+        
+        const patientsList = await caregiverService.getPatientsForCaregiver(CURRENT_USER_ID);
+        setPatients(patientsList);
+        
+        if (patientsList.length > 0) {
+          setSelectedPatient(patientsList[0]);
+          await loadPatientData(patientsList[0].id);
+        }
+      } else {
+        setIsCaregiver(false);
+        await loadTodaysMedications();
+        await loadStats();
+        await loadAICompanionStatus();
+        checkExpiredMedications();
+        checkLowStockMedications();
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✅ FIX: Load patient data with filter
+  const loadPatientData = async (patientId: string) => {
+    try {
+      const meds = await caregiverService.getPatientMedications(CURRENT_USER_ID, patientId);
+      
+      // ✅ Filter out undefined medications
+      const validMeds = (meds || []).filter(med => med && med.id && med.medication_name);
+      
+      setTodaysMedications(validMeds);
+      await loadPatientLogs(patientId, validMeds);
+      await loadPatientStats(patientId);
+    } catch (error) {
+      console.error('Error loading patient data:', error);
+    }
+  };
+
+  // Load patient logs
+  const loadPatientLogs = async (patientId: string, medications: DatabaseMedication[]) => {
+    try {
+      const today = getPhilippineDateString();
+      
+      const { data: logs, error } = await supabase
+        .from('medication_logs')
+        .select('medication_id, status')
+        .eq('user_id', patientId)
+        .eq('log_date', today);
+
+      if (error) throw error;
+
+      const logMap: {[key: string]: MedicationStatus} = {};
+      
+      medications.forEach(med => {
+        logMap[med.id] = {
+          taken: false,
+          skipped: false,
+          missed: false,
+          status: null
+        };
+      });
+      
+      logs?.forEach(log => {
+        if (logMap[log.medication_id]) {
+          logMap[log.medication_id] = {
+            taken: log.status === 'taken',
+            skipped: log.status === 'skipped',
+            missed: log.status === 'missed',
+            status: log.status as 'taken' | 'skipped' | 'missed'
+          };
+        }
+      });
+      
+      setMedicationLogs(logMap);
+    } catch (error) {
+      console.error('Error loading patient logs:', error);
+    }
+  };
+
+  // Load patient stats
+  const loadPatientStats = async (patientId: string) => {
+    try {
+      const today = getPhilippineDateString();
+      
+      const { data: logs, error } = await supabase
+        .from('medication_logs')
+        .select('status')
+        .eq('user_id', patientId)
+        .eq('log_date', today);
+
+      if (error) throw error;
+
+      const taken = logs?.filter(log => log.status === 'taken').length || 0;
+      const missed = logs?.filter(log => log.status === 'missed').length || 0;
+      const total = todaysMedications.length;
+      const logged = logs?.length || 0;
+      const pending = Math.max(0, total - logged);
+      
+      setStats({
+        taken,
+        pending,
+        missed,
+        total,
+      });
+
+      await loadPatientStreak(patientId);
+    } catch (error) {
+      console.error('Error loading patient stats:', error);
+    }
+  };
+
+  // Load patient streak
+  const loadPatientStreak = async (patientId: string) => {
+    try {
+      const { data: medications } = await supabase
+        .from('medications')
+        .select('id')
+        .eq('user_id', patientId)
+        .eq('is_active', true);
+
+      const activeMedsCount = medications?.length || 0;
+      if (activeMedsCount === 0) {
+        setStreak(0);
+        return;
+      }
+
+      let streakCount = 0;
+      let checkDate = new Date();
+
+      for (let i = 0; i < 30; i++) {
+        const phTime = new Date(checkDate.getTime() + (8 * 60 * 60 * 1000));
+        const year = phTime.getUTCFullYear();
+        const month = String(phTime.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(phTime.getUTCDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
+        const { data: logs } = await supabase
+          .from('medication_logs')
+          .select('status')
+          .eq('user_id', patientId)
+          .eq('log_date', dateStr)
+          .eq('status', 'taken');
+
+        const takenCount = logs?.length || 0;
+        
+        if (takenCount >= activeMedsCount) {
+          streakCount++;
+        } else {
+          break;
+        }
+
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      setStreak(streakCount);
+    } catch (error) {
+      console.error('Error calculating patient streak:', error);
+      setStreak(0);
+    }
+  };
+
   useEffect(() => {
-    loadTodaysMedications();
-    loadStats();
-    loadAICompanionStatus();
+    if (!isCaregiver) {
+      loadTodaysMedications();
+      loadStats();
+      loadAICompanionStatus();
 
-    // Check for missed medications every minute
-    const missedCheckInterval = setInterval(() => {
-      checkAndMarkMissedMedications();
-    }, 60000);
+      const missedCheckInterval = setInterval(() => {
+        checkAndMarkMissedMedications();
+      }, 60000);
 
-    // ✅ NEW: Check expired medications daily
-    checkExpiredMedications();
-    
-    // ✅ NEW: Check low stock daily
-    checkLowStockMedications();
+      checkExpiredMedications();
+      checkLowStockMedications();
 
-    return () => clearInterval(missedCheckInterval);
-  }, []);
+      return () => clearInterval(missedCheckInterval);
+    }
+  }, [isCaregiver]);
 
-  // ✅ NEW: Check for expired medications
   const checkExpiredMedications = async () => {
     if (!CURRENT_USER_ID) return;
     await disposalService.alertExpiredMedications(CURRENT_USER_ID);
   };
 
-  // ✅ NEW: Check for low stock medications
   const checkLowStockMedications = async () => {
     if (!CURRENT_USER_ID) return;
     await inventoryService.checkRefillAlerts(CURRENT_USER_ID);
@@ -129,6 +298,7 @@ export default function HomeScreen() {
     }
   };
 
+  // ✅ FIX: Load own medications with filter
   const loadTodaysMedications = async () => {
     try {
       const { data, error } = await supabase
@@ -140,8 +310,11 @@ export default function HomeScreen() {
 
       if (error) throw error;
 
-      setTodaysMedications(data || []);
-      await loadTodayLogs(data || []);
+      // ✅ Filter out undefined medications
+      const validMeds = (data || []).filter(med => med && med.id && med.medication_name);
+
+      setTodaysMedications(validMeds);
+      await loadTodayLogs(validMeds);
       
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -193,7 +366,7 @@ export default function HomeScreen() {
   };
 
   const checkAndMarkMissedMedications = async () => {
-    if (!CURRENT_USER_ID) return;
+    if (!CURRENT_USER_ID || isCaregiver) return;
 
     try {
       const today = getPhilippineDateString();
@@ -233,7 +406,6 @@ export default function HomeScreen() {
                 });
 
               if (!error) {
-                // ✅ NEW: Offer to adjust next dose
                 Alert.alert(
                   '⚠️ Missed Dose',
                   `You missed ${med.medication_name} at ${med.reminder_time}.\n\nWould you like to adjust your next reminder?`,
@@ -308,7 +480,7 @@ export default function HomeScreen() {
         return;
       }
 
-      let streak = 0;
+      let streakCount = 0;
       let checkDate = new Date();
 
       for (let i = 0; i < 30; i++) {
@@ -328,7 +500,7 @@ export default function HomeScreen() {
         const takenCount = logs?.length || 0;
         
         if (takenCount >= activeMedsCount) {
-          streak++;
+          streakCount++;
         } else {
           break;
         }
@@ -336,15 +508,19 @@ export default function HomeScreen() {
         checkDate.setDate(checkDate.getDate() - 1);
       }
 
-      setStreak(streak);
+      setStreak(streakCount);
     } catch (error) {
       console.error('Error calculating streak:', error);
       setStreak(0);
     }
   };
 
-  // ✅ ENHANCED: Auto-decrement inventory on take
   const handleTakeMedication = async (medicationId: string) => {
+    if (isCaregiver) {
+      Alert.alert('View Only', 'Caregivers cannot log medications for patients.');
+      return;
+    }
+
     try {
       setMedicationLogs(prev => ({ 
         ...prev, 
@@ -385,9 +561,6 @@ export default function HomeScreen() {
         if (error) throw error;
       }
 
-      // ✅ NEW: Auto-decrement pill count (triggered by database trigger)
-      // The database trigger will automatically decrement the quantity
-      // We just need to reload the medications to show updated count
       setTimeout(() => {
         loadTodaysMedications();
       }, 500);
@@ -404,6 +577,11 @@ export default function HomeScreen() {
   };
 
   const handleSkipMedication = async (medicationId: string) => {
+    if (isCaregiver) {
+      Alert.alert('View Only', 'Caregivers cannot log medications for patients.');
+      return;
+    }
+
     try {
       setMedicationLogs(prev => ({ 
         ...prev, 
@@ -457,9 +635,48 @@ export default function HomeScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadTodaysMedications();
-    loadStats();
-    loadAICompanionStatus();
+    if (isCaregiver && selectedPatient) {
+      loadPatientData(selectedPatient.id);
+    } else {
+      loadTodaysMedications();
+      loadStats();
+      loadAICompanionStatus();
+    }
+    setRefreshing(false);
+  };
+
+  // Patient selector for caregivers
+  const renderPatientSelector = () => {
+    if (!isCaregiver || patients.length === 0) return null;
+
+    return (
+      <View style={styles.patientSelector}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {patients.map((patient) => (
+            <Pressable
+              key={patient.id}
+              style={[
+                styles.patientChip,
+                selectedPatient?.id === patient.id && styles.patientChipActive
+              ]}
+              onPress={async () => {
+                setSelectedPatient(patient);
+                setLoading(true);
+                await loadPatientData(patient.id);
+                setLoading(false);
+              }}
+            >
+              <Text style={[
+                styles.patientChipText,
+                selectedPatient?.id === patient.id && styles.patientChipTextActive
+              ]}>
+                {patient.display_name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    );
   };
 
   return (
@@ -470,8 +687,16 @@ export default function HomeScreen() {
       >
         <View style={styles.headerContent}>
           <View>
-            <Text style={styles.greeting}>Good Morning!</Text>
-            <Text style={styles.date}>{formatDate(new Date().toISOString())}</Text>
+            {/* ✅ FIX: Removed emoji */}
+            <Text style={styles.greeting}>
+              {isCaregiver ? 'Viewing Patient' : 'Good Morning!'}
+            </Text>
+            <Text style={styles.date}>
+              {isCaregiver && selectedPatient 
+                ? selectedPatient.display_name 
+                : formatDate(new Date().toISOString())
+              }
+            </Text>
           </View>
           <View style={styles.streakContainer}>
             <Text style={styles.streakNumber}>{streak}</Text>
@@ -479,6 +704,8 @@ export default function HomeScreen() {
           </View>
         </View>
       </LinearGradient>
+
+      {renderPatientSelector()}
 
       <ScrollView
         style={styles.content}
@@ -489,7 +716,9 @@ export default function HomeScreen() {
         }
       >
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Today's Medications</Text>
+          <Text style={styles.sectionTitle}>
+            {isCaregiver ? "Patient's Medications" : "Today's Medications"}
+          </Text>
           {todaysMedications.length > 0 ? (
             todaysMedications.map((medication) => (
               <MedicationCard
@@ -499,21 +728,30 @@ export default function HomeScreen() {
                 onSkip={() => handleSkipMedication(medication.id)}
                 takenToday={medicationLogs[medication.id]?.taken || false}
                 skippedToday={medicationLogs[medication.id]?.skipped || false}
+                // @ts-ignore
+                isViewOnly={isCaregiver}
               />
             ))
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="medical-outline" size={64} color="#D1D5DB" />
               <Text style={styles.emptyTitle}>
-                {loading ? 'Loading medications...' : 'No medications for today'}
+                {loading 
+                  ? 'Loading medications...' 
+                  : isCaregiver 
+                  ? 'No medications for this patient'
+                  : 'No medications for today'
+                }
               </Text>
               <Text style={styles.emptyText}>
                 {loading 
                   ? 'Please wait while we load your data' 
+                  : isCaregiver
+                  ? 'This patient has not added any medications yet'
                   : 'Add your first medication to get started!'
                 }
               </Text>
-              {!loading && (
+              {!loading && !isCaregiver && (
                 <Pressable
                   style={styles.addButton}
                   onPress={() => router.push('/modal')}
@@ -563,7 +801,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {aiCompanionEnabled && <AIChatHead userId={CURRENT_USER_ID} />}
+      {!isCaregiver && aiCompanionEnabled && <AIChatHead userId={CURRENT_USER_ID} />}
     </View>
   );
 }
@@ -577,6 +815,11 @@ const styles = StyleSheet.create({
   streakContainer: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', padding: 16, borderRadius: 16 },
   streakNumber: { fontSize: 32, fontWeight: '700', color: 'white' },
   streakLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  patientSelector: { backgroundColor: 'white', paddingVertical: 12, paddingHorizontal: 16 },
+  patientChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#F3F4F6', marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
+  patientChipActive: { backgroundColor: '#EEF2FF', borderColor: '#6366F1' },
+  patientChipText: { fontSize: 14, fontWeight: '600', color: '#6B7280' },
+  patientChipTextActive: { color: '#6366F1' },
   content: { flex: 1, paddingTop: 20 },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937', marginHorizontal: 16, marginBottom: 16 },
@@ -587,7 +830,7 @@ const styles = StyleSheet.create({
   addButtonGradient: { paddingHorizontal: 24, paddingVertical: 12 },
   addButtonText: { color: 'white', fontWeight: '600', fontSize: 16 },
   statsContainer: { flexDirection: 'row', paddingHorizontal: 16, gap: 12 },
-  statCard: { flex: 1, padding: 20, borderRadius: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
-  statNumber: { fontSize: 24, fontWeight: '700', color: 'white', marginTop: 8 },
-  statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  statCard: { flex: 1, padding: 20, borderRadius: 16, alignItems: 'center' },
+  statNumber: { fontSize: 28, fontWeight: '700', color: 'white', marginTop: 8 },
+  statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.9)', marginTop: 4 },
 });
