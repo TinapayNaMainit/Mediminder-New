@@ -1,4 +1,4 @@
-// services/caregiverService.ts - VIEW-ONLY VERSION
+// services/caregiverService.ts - FIXED VERSION WITH ROBUST FILTERING
 import { supabase } from './supabaseClient';
 
 export interface CaregiverConnection {
@@ -309,7 +309,7 @@ export const caregiverService = {
     }
   },
 
-  // ✅ VIEW-ONLY: Get patient's medications (caregiver access)
+  // ✅ FIXED: Get patient's medications with robust filtering
   async getPatientMedications(caregiverId: string, patientId: string): Promise<any[]> {
     try {
       // Verify access first
@@ -329,15 +329,35 @@ export const caregiverService = {
 
       if (error) throw error;
 
-      console.log(`✅ Found ${data?.length || 0} medications`);
-      return data || [];
+      // ✅ FIX: Add robust filtering to prevent undefined errors
+      const validMeds = (data || []).filter(med => {
+        if (!med || typeof med !== 'object') {
+          console.warn('⚠️ Invalid medication object:', med);
+          return false;
+        }
+        
+        if (!med.id) {
+          console.warn('⚠️ Medication missing ID:', med);
+          return false;
+        }
+        
+        if (!med.medication_name) {
+          console.warn('⚠️ Medication missing name:', med);
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.log(`✅ Found ${validMeds.length} valid medications out of ${data?.length || 0} total`);
+      return validMeds;
     } catch (error) {
       console.error('❌ Error fetching patient medications:', error);
       return [];
     }
   },
 
-  // ✅ VIEW-ONLY: Get patient's medication logs (caregiver access)
+  // Get patient's medication logs (caregiver access)
   async getPatientMedicationLogs(
     caregiverId: string,
     patientId: string,

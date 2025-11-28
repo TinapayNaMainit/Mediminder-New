@@ -117,19 +117,40 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ FIX: Load patient data with filter
+  // ✅ FIX: Load patient data with robust filtering
   const loadPatientData = async (patientId: string) => {
     try {
       const meds = await caregiverService.getPatientMedications(CURRENT_USER_ID, patientId);
       
-      // ✅ Filter out undefined medications
-      const validMeds = (meds || []).filter(med => med && med.id && med.medication_name);
+      // ✅ FIX: Robust filtering to prevent undefined errors
+      const validMeds = (meds || []).filter(med => {
+        // Check if medication exists and has required fields
+        if (!med || typeof med !== 'object') {
+          console.warn('⚠️ Invalid medication object:', med);
+          return false;
+        }
+        
+        if (!med.id) {
+          console.warn('⚠️ Medication missing ID:', med);
+          return false;
+        }
+        
+        if (!med.medication_name) {
+          console.warn('⚠️ Medication missing name:', med);
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`✅ Loaded ${validMeds.length} valid medications for patient`);
       
       setTodaysMedications(validMeds);
       await loadPatientLogs(patientId, validMeds);
       await loadPatientStats(patientId);
     } catch (error) {
       console.error('Error loading patient data:', error);
+      Alert.alert('Error', 'Failed to load patient medications');
     }
   };
 
@@ -298,7 +319,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ FIX: Load own medications with filter
+  // ✅ FIX: Load own medications with robust filtering
   const loadTodaysMedications = async () => {
     try {
       const { data, error } = await supabase
@@ -310,8 +331,27 @@ export default function HomeScreen() {
 
       if (error) throw error;
 
-      // ✅ Filter out undefined medications
-      const validMeds = (data || []).filter(med => med && med.id && med.medication_name);
+      // ✅ FIX: Robust filtering to prevent undefined errors
+      const validMeds = (data || []).filter(med => {
+        if (!med || typeof med !== 'object') {
+          console.warn('⚠️ Invalid medication object:', med);
+          return false;
+        }
+        
+        if (!med.id) {
+          console.warn('⚠️ Medication missing ID:', med);
+          return false;
+        }
+        
+        if (!med.medication_name) {
+          console.warn('⚠️ Medication missing name:', med);
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.log(`✅ Loaded ${validMeds.length} valid medications`);
 
       setTodaysMedications(validMeds);
       await loadTodayLogs(validMeds);
@@ -687,7 +727,6 @@ export default function HomeScreen() {
       >
         <View style={styles.headerContent}>
           <View>
-            {/* ✅ FIX: Removed emoji */}
             <Text style={styles.greeting}>
               {isCaregiver ? 'Viewing Patient' : 'Good Morning!'}
             </Text>
@@ -728,7 +767,6 @@ export default function HomeScreen() {
                 onSkip={() => handleSkipMedication(medication.id)}
                 takenToday={medicationLogs[medication.id]?.taken || false}
                 skippedToday={medicationLogs[medication.id]?.skipped || false}
-                // @ts-ignore
                 isViewOnly={isCaregiver}
               />
             ))

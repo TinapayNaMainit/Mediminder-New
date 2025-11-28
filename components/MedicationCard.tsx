@@ -1,3 +1,4 @@
+// components/MedicationCard.tsx - WITH VIEW-ONLY MODE
 import React, { useState } from 'react';
 import {
   View,
@@ -25,7 +26,8 @@ interface MedicationCardProps {
   onSkip: () => void;
   nextDose?: string;
   takenToday?: boolean;
-  skippedToday?: boolean; // New prop to handle skipped state
+  skippedToday?: boolean;
+  isViewOnly?: boolean; // ✅ NEW: View-only mode for caregivers
 }
 
 const formatTime = (time: string): string => {
@@ -47,6 +49,7 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
   nextDose,
   takenToday = false,
   skippedToday = false,
+  isViewOnly = false, // ✅ NEW: Default to false
 }) => {
   const [localTaken, setLocalTaken] = useState(takenToday);
   const [localSkipped, setLocalSkipped] = useState(skippedToday);
@@ -101,41 +104,70 @@ const MedicationCard: React.FC<MedicationCardProps> = ({
         </View>
       )}
 
-      {nextDose && !isCompleted && (
+      {nextDose && !isCompleted && !isViewOnly && (
         <View style={styles.nextDoseContainer}>
           <Text style={styles.nextDoseLabel}>Next dose in:</Text>
           <Text style={styles.nextDose}>{nextDose}</Text>
         </View>
       )}
 
-      {isCompleted ? (
-        <View style={styles.completedContainer}>
-          <Ionicons 
-            name={localTaken ? "checkmark-circle" : "remove-circle"} 
-            size={32} 
-            color="white" 
-          />
-          <Text style={styles.completedText}>
-            {localTaken ? "Taken Today" : "Skipped Today"}
-          </Text>
+      {/* ✅ UPDATED: Different views for patients vs caregivers */}
+      {isViewOnly ? (
+        // ✅ VIEW-ONLY: Show status only, no action buttons
+        <View style={styles.viewOnlyContainer}>
+          {isCompleted ? (
+            <View style={styles.statusRow}>
+              <Ionicons 
+                name={localTaken ? "checkmark-circle" : "remove-circle"} 
+                size={24} 
+                color="white" 
+              />
+              <Text style={styles.viewOnlyText}>
+                {localTaken ? "Patient took this medication" : "Patient skipped this medication"}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.statusRow}>
+              <Ionicons name="time-outline" size={24} color="white" />
+              <Text style={styles.viewOnlyText}>
+                Waiting for patient to log
+              </Text>
+            </View>
+          )}
         </View>
       ) : (
-        <View style={styles.actions}>
-          <Pressable style={styles.skipButton} onPress={handleSkip}>
-            <Ionicons name="close-outline" size={20} color="#EF4444" />
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-          
-          <Pressable style={styles.takeButton} onPress={handleTake}>
-            <LinearGradient
-              colors={['#10B981', '#059669']}
-              style={styles.takeButtonGradient}
-            >
-              <Ionicons name="checkmark-outline" size={20} color="white" />
-              <Text style={styles.takeText}>Take Now</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
+        // ✅ PATIENT VIEW: Show action buttons
+        <>
+          {isCompleted ? (
+            <View style={styles.completedContainer}>
+              <Ionicons 
+                name={localTaken ? "checkmark-circle" : "remove-circle"} 
+                size={32} 
+                color="white" 
+              />
+              <Text style={styles.completedText}>
+                {localTaken ? "Taken Today" : "Skipped Today"}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.actions}>
+              <Pressable style={styles.skipButton} onPress={handleSkip}>
+                <Ionicons name="close-outline" size={20} color="#EF4444" />
+                <Text style={styles.skipText}>Skip</Text>
+              </Pressable>
+              
+              <Pressable style={styles.takeButton} onPress={handleTake}>
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  style={styles.takeButtonGradient}
+                >
+                  <Ionicons name="checkmark-outline" size={20} color="white" />
+                  <Text style={styles.takeText}>Take Now</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          )}
+        </>
       )}
     </LinearGradient>
   );
@@ -263,6 +295,24 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: '700',
+    marginLeft: 8,
+  },
+  // ✅ NEW: View-only styles
+  viewOnlyContainer: {
+    paddingVertical: 12,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    padding: 12,
+    borderRadius: 12,
+  },
+  viewOnlyText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
     marginLeft: 8,
   },
 });
