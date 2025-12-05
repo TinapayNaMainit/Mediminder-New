@@ -68,6 +68,15 @@ export default function RoleSelectionScreen({ onComplete }: { onComplete: () => 
         throw verifyError;
       }
 
+      // After role is saved, verify profile exists
+      const { data: verifyProfile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+      console.log('Profile after role selection:', verifyProfile);
+
       console.log('✅ Verified role in database:', verifyData.role);
 
       if (verifyData.role !== role) {

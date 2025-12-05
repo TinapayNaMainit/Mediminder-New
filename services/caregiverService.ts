@@ -1,4 +1,4 @@
-// services/caregiverService.ts - FIXED VERSION WITH ROBUST FILTERING
+// services/caregiverService.ts - FIXED CONNECTION CODE GENERATION
 import { supabase } from './supabaseClient';
 
 export interface CaregiverConnection {
@@ -19,37 +19,76 @@ export interface CaregiverConnection {
 }
 
 export const caregiverService = {
-  // Generate unique connection code for patient
+  // ✅ FIXED: Generate connection code with proper error handling
   async generateConnectionCode(userId: string): Promise<string | null> {
     try {
+      console.log('🔑 Generating connection code for user:', userId);
+      
+      // Generate 6-character alphanumeric code
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      console.log('   Generated code:', code);
       
-      console.log('🔑 Generating connection code:', code, 'for user:', userId);
-      
-      const { error } = await supabase
+      // Check if profile exists first
+      const { data: existingProfile, error: checkError } = await supabase
         .from('user_profiles')
-        .upsert({ 
-          user_id: userId,
-          connection_code: code,
-          updated_at: new Date().toISOString() 
-        }, {
-          onConflict: 'user_id'
-        });
+        .select('user_id, connection_code')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (error) {
-        console.error('❌ Error generating code:', error);
-        throw error;
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Error checking profile:', checkError);
+        throw checkError;
       }
 
-      console.log('✅ Connection code generated successfully');
+      if (existingProfile) {
+        // Profile exists - update it
+        console.log('   Profile exists, updating...');
+        const { error: updateError } = await supabase
+          .from('user_profiles')
+          .update({ 
+            connection_code: code,
+            updated_at: new Date().toISOString() 
+          })
+          .eq('user_id', userId);
+
+        if (updateError) {
+          console.error('❌ Update error:', updateError);
+          throw updateError;
+        }
+      } else {
+        // Profile doesn't exist - create it
+        console.log('   Profile missing, creating...');
+        const { error: insertError } = await supabase
+          .from('user_profiles')
+          .insert({
+            user_id: userId,
+            connection_code: code,
+            display_name: `User ${Math.floor(Math.random() * 999999)}`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (insertError) {
+          console.error('❌ Insert error:', insertError);
+          throw insertError;
+        }
+      }
+
+      console.log('✅ Connection code generated successfully:', code);
       return code;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in generateConnectionCode:', error);
+      console.error('   Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
       return null;
     }
   },
 
-  // Get user's connection code
+  // ✅ FIXED: Get connection code with better error handling
   async getConnectionCode(userId: string): Promise<string | null> {
     try {
       console.log('📖 Getting connection code for user:', userId);
@@ -58,26 +97,26 @@ export const caregiverService = {
         .from('user_profiles')
         .select('connection_code')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error) {
+      if (error && error.code !== 'PGRST116') {
         console.error('❌ Error fetching code:', error);
-        if (error.code === 'PGRST116') {
-          console.log('📝 Profile not found, creating new one...');
-          return await this.generateConnectionCode(userId);
-        }
         throw error;
       }
       
-      if (!data?.connection_code) {
+      if (!data || !data.connection_code) {
         console.log('📝 No code found, generating new one...');
         return await this.generateConnectionCode(userId);
       }
       
-      console.log('✅ Found existing code:', data.connection_code);
+      console.log('✅ Found existing code');
       return data.connection_code;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in getConnectionCode:', error);
+      console.error('   Error details:', {
+        message: error.message,
+        code: error.code
+      });
       return null;
     }
   },
@@ -309,7 +348,7 @@ export const caregiverService = {
     }
   },
 
-  // ✅ FIXED: Get patient's medications with robust filtering
+  // Get patient's medications with robust filtering
   async getPatientMedications(caregiverId: string, patientId: string): Promise<any[]> {
     try {
       // Verify access first
@@ -329,7 +368,7 @@ export const caregiverService = {
 
       if (error) throw error;
 
-      // ✅ FIX: Add robust filtering to prevent undefined errors
+      // Add robust filtering to prevent undefined errors
       const validMeds = (data || []).filter(med => {
         if (!med || typeof med !== 'object') {
           console.warn('⚠️ Invalid medication object:', med);
