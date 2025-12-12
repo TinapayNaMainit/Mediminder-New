@@ -4,8 +4,12 @@ import 'web-streams-polyfill/polyfill';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const supabaseUrl = 'https://dlkyytmobjzhzivwowcb.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsa3l5dG1vYmp6aHppdndvd2NiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NzIzNjUsImV4cCI6MjA3NTE0ODM2NX0.8ylqRyk-5DjjOCQjSUcbq---G959IZeeDi6F0nJxNAc';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('⚠️ Missing Supabase credentials in environment variables');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -16,7 +20,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Auth helper functions
 export const getCurrentUserId = async (): Promise<string | null> => {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.user?.id || null;
@@ -27,7 +30,6 @@ export const getCurrentUser = async () => {
   return session?.user || null;
 };
 
-// Database interfaces remain the same
 export interface DatabaseMedication {
   id: string;
   user_id: string;

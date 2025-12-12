@@ -5,7 +5,6 @@ const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// Add validation
 if (!GEMINI_API_KEY) {
   console.error('⚠️ GEMINI_API_KEY not found in environment variables');
 }
@@ -23,7 +22,7 @@ class GeminiService {
 
   constructor() {
     this.model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-flash', // Updated to current model name
+      model: 'gemini-2.5-flash',
       generationConfig: {
         temperature: 0.7,
         topK: 40,
@@ -35,7 +34,6 @@ class GeminiService {
 
   async sendMessage(userMessage: string, medicationContext?: any[]): Promise<ChatMessage> {
     try {
-      // Add user message to history
       const userChatMessage: ChatMessage = {
         id: Date.now().toString(),
         role: 'user',
@@ -44,15 +42,12 @@ class GeminiService {
       };
       this.chatHistory.push(userChatMessage);
 
-      // Build context-aware prompt
       let prompt = this.buildPrompt(userMessage, medicationContext);
 
-      // Generate response
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
 
-      // Add assistant message to history
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -82,7 +77,6 @@ Important guidelines:
 
 `;
 
-    // Add medication context if available
     if (medicationContext && medicationContext.length > 0) {
       context += `\nUser's Current Medications:\n`;
       medicationContext.forEach((med: any) => {
@@ -92,7 +86,6 @@ Important guidelines:
       context += '\n';
     }
 
-    // Add recent chat history for context (last 5 messages)
     const recentHistory = this.chatHistory.slice(-5);
     if (recentHistory.length > 0) {
       context += 'Recent conversation:\n';

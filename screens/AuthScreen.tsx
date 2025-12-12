@@ -113,7 +113,7 @@ export default function AuthScreen() {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-        redirectTo: 'https://tinapaynamainit.github.io/mediminder-auth/',
+        redirectTo: process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL,
       });
 
       if (error) throw error;
